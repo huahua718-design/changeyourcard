@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>超自然心靈撲克 (真 AR 最終穩定版)</title>
+  <title>超自然心靈撲克 (終極穩定修復版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -18,15 +18,24 @@
 
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-    /* 隱藏 MindAR 預設彈出的提示 UI */
     .a-dialog-allow-button { display: none !important; }
     .mindar-ui-overlay { display: none !important; }
+    
+    /* 💡 確保 React 介面永遠在最上層，絕不被 A-Frame 底層畫布或黑屏遮擋 */
+    #root { position: relative; z-index: 9999; }
   </style>
 </head>
 <body>
   <div id="root"></div>
 
   <script type="text/babel">
+    console.log("=== 系統開始初始化 ===");
+    
+    // 防禦性安全檢查
+    if (!window.React || !window.ReactDOM) {
+      console.error("【嚴重錯誤】React 或 ReactDOM 網址出錯，載入失敗！");
+    }
+
     const { useState, useRef, useEffect } = React;
 
     const firebaseConfig = {
@@ -39,13 +48,14 @@
       appId: "1:900697689478:web:38a5aba747e96a7fcb3007"
     };
 
-    if (!window.firebase.apps.length) window.firebase.initializeApp(firebaseConfig);
-    const db = window.firebase.database();
+    if (window.firebase && !window.firebase.apps.length) window.firebase.initializeApp(firebaseConfig);
+    const db = window.firebase ? window.firebase.database() : null;
 
     const urlParams = new URLSearchParams(window.location.search);
     const isSpectator = !!urlParams.get('room');
-    // 💡 修正：將預設房間號碼同步恢復為您的 "9527"
-    const roomId = urlParams.get('room') || "9527"; 
+    
+    // 💡 房號嚴格綁定 9257
+    const roomId = urlParams.get('room') || "9257"; 
 
     function MagicCardApp() {
       const [phase, setPhase] = useState(isSpectator ? 'INIT' : 'QR_CODE'); 
@@ -60,8 +70,9 @@
 
       useEffect(() => { phaseRef.current = phase; }, [phase]);
 
+      // 監聽 Firebase 資料庫變動
       useEffect(() => {
-        if (!isSpectator) return;
+        if (!isSpectator || !db) return;
         const roomRef = db.ref('twatch_rooms/' + roomId);
         roomRef.on('value', (snapshot) => {
           const data = snapshot.val();
@@ -80,8 +91,9 @@
         return () => roomRef.off();
       }, [roomId, isSpectator]);
 
+      // 觀眾端的 AR 動態生命週期
       useEffect(() => {
-        if (!isSpectator) return;
+        if (!isSpectator || !db) return;
         let tSwitch, tReveal, tDismiss, tIdle;
 
         if (phase === 'SWITCHING') {
@@ -109,6 +121,7 @@
       }, [phase, isSpectator, roomId, receivedCard]);
 
       const sendCard = (cardData) => {
+        if (!db) return;
         db.ref('twatch_rooms/' + roomId).set({ card: cardData, timestamp: Date.now() })
         .then(() => { setFlash(true); setTimeout(() => setFlash(false), 400); });
       };
@@ -141,7 +154,7 @@
         }
         
         if (isDoubleTap) {
-          if (phase === 'QR_CODE') setPhase('INPUT');
+          if (phase === 'QR_CODE') setPhase('INPUT'); 
           else if (phase === 'INPUT') sendCard({ icon: '🃏', color: 'text-slate-900', value: 'JOKER', imageUrl: './cards/joker_black.png' });
           return;
         }
@@ -162,11 +175,29 @@
             setMagicianStrokes(newStrokes);
             if (newStrokes.length === 2) { calculateSenderCard(newStrokes); setMagicianStrokes([]); }
           }
-          // 💡 修正：移除不小心滑錯方向會清除記憶的 else 機制，大幅提升手勢容錯率
         }
       };
 
-      // --- 觀眾接收端 UI (全螢幕獨立 3D 佈局) ---
+      // --- 1. 魔術師初始畫面：顯示 QR Code ---
+      if (!isSpectator && phase === 'QR_CODE') {
+        const baseUrl = window.location.origin + window.location.pathname;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(baseUrl + '?room=' + roomId)}`;
+        return (
+          <div className="w-screen h-screen flex flex-col items-center justify-center bg-slate-950" onPointerDown={handlePointerDown}>
+            <div className="p-4 bg-white rounded-xl shadow-2xl z-50">
+              <img src={qrUrl} className="w-48 h-48" alt="QR Code" />
+            </div>
+            <div className="mt-10 text-white text-sm tracking-widest font-mono z-50">
+              房間頻道 ROOM: <span className="text-indigo-400 font-bold">{roomId}</span>
+            </div>
+            <div className="mt-4 text-white/40 text-xs tracking-widest animate-pulse z-50">
+              【 畫面上快速點兩下 】隱藏條碼並進入傳送模式
+            </div>
+          </div>
+        );
+      }
+
+      // --- 2. 觀眾接收端 UI ---
       if (isSpectator) {
         const opacityValue = (phase === 'REVEAL' || phase === 'DISMISSING') ? "1" : "0";
         const revealAnimation = phase === 'REVEALING' ? "property: opacity; from: 0; to: 1; dur: 4000; easing: easeOutCubic;" : "";
@@ -174,76 +205,6 @@
 
         return (
           <div className="w-screen h-screen relative bg-black" onPointerDown={handlePointerDown}>
-            
-            {/* 🌟 UI 控制層：置於最上方（z-10），利用 pointer-events-none 確保不干擾底層相機，只有按鈕有反應 */}
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none select-none">
-              {phase === 'INIT' && (
-                <button 
-                  className="pointer-events-auto text-white bg-indigo-600 px-8 py-4 rounded-full text-sm font-bold tracking-widest shadow-2xl animate-pulse" 
-                  onClick={() => setPhase('IDLE')}
-                >
-                  啟動 MindAR 追蹤
-                </button>
-              )}
-              {phase === 'IDLE' && (
-                <div className="text-white/60 text-xs tracking-widest bg-black/70 px-5 py-2.5 rounded-full backdrop-blur-md animate-pulse">
-                  等待魔術師的感知訊號...
-                </div>
-              )}
-              {phase === 'WAITING' && (
-                <div className="pointer-events-auto text-emerald-400 border border-emerald-500/30 bg-black/80 px-8 py-4 rounded-full animate-pulse tracking-widest text-sm font-bold backdrop-blur-md cursor-pointer">
-                  請將鏡頭對準實體撲克牌 (點擊畫面顯影)
-                </div>
-              )}
-            </div>
-
-            {/* 🌟 AR 渲染層：直接獨立作為滿版底層，確保測量寬高完美精準不偏移 */}
-            {phase !== 'INIT' && (
-              <a-scene 
-                mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
-                color-space="sRGB" 
-                renderer="colorManagement: true, physicallyCorrectLights" 
-                vr-mode-ui="enabled: false" 
-                device-orientation-permission-ui="enabled: false"
-                embedded
-                style={{ width: "100vw", height: "100vh", position: "absolute", top: 0, left: 0, zIndex: 0 }}
-              >
-                <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-                
-                <a-entity mindar-image-target="targetIndex: 0">
-                  {/* 💡 優化：將撲克牌 3D 物件調整為標準黃金比例 width=1, height=1.4 */}
-                  <a-image 
-                    src={receivedCard.imageUrl || ''} 
-                    position="0 0 0" 
-                    height="1.4" 
-                    width="1"
-                    opacity={opacityValue}
-                    animation__reveal={revealAnimation}
-                    animation__dismiss={dismissAnimation}
-                  ></a-image>
-                </a-entity>
-              </a-scene>
-            )}
-
-          </div>
-        );
-      }
-
-      // --- 魔術師傳送端 UI ---
-      return (
-        <div className="w-screen h-screen flex items-center justify-center bg-slate-950" onPointerDown={handlePointerDown} onPointerUp={handlePointerUp}>
-          <div className="w-24 h-24 border border-white/5 border-dashed rounded-lg pointer-events-none"></div>
-          <div className={`absolute inset-0 pointer-events-none transition-colors duration-300 ${flash ? 'bg-white/10' : ''}`}></div>
-          <div className="absolute bottom-10 flex gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${magicianStrokes.length >= 1 ? 'bg-indigo-500 scale-125' : 'bg-white/5'}`}></div>
-            <div className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${magicianStrokes.length >= 2 ? 'bg-indigo-500 scale-125' : 'bg-white/5'}`}></div>
-          </div>
-        </div>
-      );
-    }
-
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<MagicCardApp />);
-  </script>
-</body>
-</html>
+            {/* UI 上層控制面板 */}
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none select-none">
+              {phase === '
