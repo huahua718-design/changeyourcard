@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>超自然AR心靈撲克 (權限修正版)</title>
+  <title>超自然AR心靈撲克 (Safari權限完美修正版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -43,7 +43,8 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const isSpectator = !!urlParams.get('room');
-    const roomId = urlParams.get('room') || "9527";
+    // 🌟 需求修正：將預設 Room ID 改為 9257
+    const roomId = urlParams.get('room') || "9257"; 
 
     function MagicCardApp() {
       const [phase, setPhase] = useState(isSpectator ? 'INIT' : 'QR_CODE'); 
@@ -53,7 +54,7 @@
 
       const containerRef = useRef(null);
       const materialRef = useRef(null);
-      const mindarRef = useRef(null); // 用於組件卸載時關閉相機
+      const mindarRef = useRef(null); 
       
       const phaseRef = useRef(phase);
       const cardRef = useRef(receivedCard);
@@ -64,7 +65,7 @@
       useEffect(() => { phaseRef.current = phase; }, [phase]);
       useEffect(() => { cardRef.current = receivedCard; }, [receivedCard]);
 
-      // 監聽 Firebase 資料
+      // --- 監聽 Firebase 資料 ---
       useEffect(() => {
         if (!isSpectator) return;
         const roomRef = db.ref('twatch_rooms/' + roomId);
@@ -73,12 +74,30 @@
           if (data && data.card) {
             const newCard = { ...data.card, t: data.timestamp || Date.now() };
             setReceivedCard(prev => {
-              if (!prev) { setPhase('WAITING'); return newCard; }
-              if (prev.t !== newCard.t) { pendingCardRef.current = newCard; setPhase('SWITCHING'); return prev; }
+              if (!prev) {
+                // 🌟 關鍵修正：如果還在 INIT (相機沒開)，絕對不跳轉 phase！確保按鈕不會消失
+                if (phaseRef.current !== 'INIT') {
+                  setPhase('WAITING');
+                }
+                return newCard;
+              }
+              if (prev.t !== newCard.t) {
+                pendingCardRef.current = newCard;
+                if (phaseRef.current !== 'INIT') {
+                  setPhase('SWITCHING');
+                } else {
+                  return newCard; // INIT 狀態下直接更新緩存
+                }
+                return prev;
+              }
               return prev;
             });
           } else {
-            setReceivedCard(prev => { if (prev === null) return null; return prev; });
+            setReceivedCard(prev => { 
+              if (prev === null) return null; 
+              if (phaseRef.current !== 'INIT') setPhase('IDLE');
+              return null; 
+            });
           }
         });
         return () => roomRef.off();
@@ -112,29 +131,20 @@
         });
       }, [receivedCard]);
 
-      // 網頁關閉或卸載時，確保相機被完全釋放
       useEffect(() => {
-        return () => {
-          if (mindarRef.current) {
-            try { mindarRef.current.stop(); } catch(e){}
-          }
-        };
+        return () => { if (mindarRef.current) { try { mindarRef.current.stop(); } catch(e){} } };
       }, []);
 
-      // --- 💡 核心修正：將相機與 AR 啟動綁定在使用者點擊事件中 ---
+      // --- 💡 核心權限修正：點擊按鈕同步觸發 WebRTC 相機請求 ---
       const startARCamera = async () => {
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
 
-        // 檢查是否為安全連線環境
         if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-          alert("【安全錯誤】WebAR 必須在 HTTPS 安全網址下才能啟動相格權限！請使用 Firebase Hosting 的 https 網址測試。");
+          alert("【環境錯誤】網頁未啟用 HTTPS 加密連線，iOS Safari 會強制封鎖相機功能！");
           return;
         }
 
         try {
-          // 狀態先轉為閒置，讓 UI 顯示「等待中」
-          setPhase('IDLE');
-
           // 初始化 MindAR
           const mindarThree = new window.MINDAR.IMAGE.MindARThree({
             container: containerRef.current,
@@ -153,7 +163,6 @@
           const clock = new THREE.Clock();
           let currentOpacity = 0;
 
-          // 偵測到目標卡片
           anchor.onTargetFound = () => {
             if (phaseRef.current === 'WAITING' && cardRef.current) {
               phaseRef.current = 'REVEALING';
@@ -162,46 +171,42 @@
             }
           };
 
-          // Three.js 動態渲染迴圈
           renderer.setAnimationLoop(() => {
             const delta = clock.getDelta();
-
             if (phaseRef.current === 'REVEALING') {
-              currentOpacity += delta * 0.33; // 3秒顯影
-              if (currentOpacity >= 1) {
-                currentOpacity = 1;
-                phaseRef.current = 'REVEAL';
-                setPhase('REVEAL');
-              }
+              currentOpacity += delta * 0.33;
+              if (currentOpacity >= 1) { currentOpacity = 1; phaseRef.current = 'REVEAL'; setPhase('REVEAL'); }
             } else if (phaseRef.current === 'REVEAL') {
               currentOpacity = 1;
             } else if (phaseRef.current === 'DISMISSING') {
-              currentOpacity -= delta * 0.33; // 3秒淡出
+              currentOpacity -= delta * 0.33;
               if (currentOpacity <= 0) {
-                currentOpacity = 0;
-                phaseRef.current = 'IDLE';
-                setPhase('IDLE');
-                db.ref('twatch_rooms/' + roomId).remove(); // 抹除證據
+                currentOpacity = 0; phaseRef.current = 'IDLE'; setPhase('IDLE');
+                db.ref('twatch_rooms/' + roomId).remove();
                 setReceivedCard(null);
               }
             } else {
-              if (phaseRef.current === 'WAITING' || phaseRef.current === 'IDLE') {
-                currentOpacity = 0;
-              }
+              if (phaseRef.current === 'WAITING' || phaseRef.current === 'IDLE') currentOpacity = 0;
             }
-
             if (materialRef.current) materialRef.current.opacity = currentOpacity;
             renderer.render(scene, camera);
           });
 
-          // 🌟 關鍵點：在 onClick 內部鏈結中直接 start，瀏覽器才會跳出相機權限請求
+          // 🌟 讓 Safari 彈出相機權限視窗
           await mindarThree.start();
-          mindarRef.current = mindarThree; // 儲存實例供後續管理
+          mindarRef.current = mindarThree;
+
+          // 🌟 相機啟動成功後，檢查剛剛在 INIT 期間有沒有偷收到魔術師的牌
+          if (cardRef.current) {
+            setPhase('WAITING'); // 有牌，直接請觀眾對準實體卡片
+          } else {
+            setPhase('IDLE');    // 沒牌，顯示「等待魔術師訊號...」
+          }
 
         } catch (err) {
-          console.error("相機權限遭拒或啟動失敗:", err);
-          alert("無法啟動相機！請檢查是否封鎖了相機權限，或請不要使用 LINE 內建瀏覽器開啟。");
-          setPhase('INIT'); // 失敗則退回初始狀態讓使用者重新點擊
+          console.error("Safari 相機啟動失敗:", err);
+          alert("相機開啟失敗！請至 iOS 設定 -> Safari -> 檢查相機權限是否設為「允許」。");
+          setPhase('INIT'); 
         }
       };
 
