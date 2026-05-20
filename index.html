@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>超自然心靈撲克 (訊號修復完美版)</title>
+  <title>超自然心靈撲克 (黑屏修復版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -16,7 +16,6 @@
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
     
-    /* 10秒緩慢顯影 */
     @keyframes magicRevealWipe {
       0% { -webkit-mask-position: 0% 100%; mask-position: 0% 100%; filter: blur(12px) brightness(2); opacity: 0; }
       20% { opacity: 0.5; }
@@ -30,14 +29,12 @@
       animation: magicRevealWipe 10s ease-out forwards;
     }
 
-    /* 快速切換淡出 */
     @keyframes fadeOutQuick {
       0% { opacity: 1; filter: blur(0px); transform: scale(1); }
       100% { opacity: 0; filter: blur(15px); transform: scale(0.9); }
     }
     .animate-fade-out-quick { animation: fadeOutQuick 1.5s ease-in-out forwards; }
 
-    /* 消失動畫 */
     @keyframes finalDismiss {
       0% { opacity: 1; filter: blur(0px); }
       100% { opacity: 0; filter: blur(20px); transform: translateY(-20px); }
@@ -85,14 +82,14 @@
       useEffect(() => { phaseRef.current = phase; }, [phase]);
       useEffect(() => { cardRef.current = receivedCard; }, [receivedCard]);
 
-      // --- 🌟 修正：初始化魔術師端時，自動在資料庫建立/重置房間，確保管道暢通 ---
+      // 初始化資料庫通訊 (魔術師端)
       useEffect(() => {
         if (isSpectator) return;
         db.ref('twatch_rooms/' + roomId).update({ initialized: true })
-          .catch(err => console.error("Firebase 房間初始化失敗:", err));
+          .catch(err => console.error("Firebase 初始化失敗:", err));
       }, [isSpectator, roomId]);
 
-      // --- 監聽 Firebase 資料 (觀眾端) ---
+      // 監聽 Firebase 資料 (觀眾端)
       useEffect(() => {
         if (!isSpectator) return;
         const roomRef = db.ref('twatch_rooms/' + roomId);
@@ -114,7 +111,7 @@
         return () => roomRef.off();
       }, [roomId, isSpectator]);
 
-      // --- 時序控制 ---
+      // 時序控制
       useEffect(() => {
         if (!isSpectator) return;
         let tSwitch, tReveal, tDismiss, tIdle;
@@ -143,7 +140,7 @@
         };
       }, [phase, isSpectator, roomId, receivedCard]);
 
-      // --- 原生相機開啟 ---
+      // 原生相機開啟
       const startNativeCamera = async () => {
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
         try {
@@ -155,24 +152,22 @@
           if (cardRef.current) setPhase('WAITING');
           else setPhase('IDLE');
         } catch (err) {
-          alert("無法開啟相機！請確認已在「手機設定 -> Safari」中將相機權限設為「允許」。");
+          alert("無法開啟相機！請確認已在設定中允許 Safari 相機權限。");
         }
       };
 
-      // --- 🌟 修正：強固型發牌控制 (含防卡死與報錯診斷) ---
+      // 傳送卡片訊號
       const sendCard = (cardData) => {
         db.ref('twatch_rooms/' + roomId).update({
           card: cardData,
           timestamp: Date.now()
         })
         .then(() => {
-          // 成功送出後，魔術師端才會閃白光提示
           setFlash(true); 
           setTimeout(() => setFlash(false), 400); 
         })
         .catch((err) => {
-          // 如果發送失敗，立刻彈出視窗提示原因，不默默吃掉錯誤
-          alert("【傳輸失敗】無法寫入 Firebase 資料庫，請檢查網路或 Firebase 權限。\n錯誤訊息: " + err.message);
+          alert("傳輸失敗：" + err.message);
         });
       };
 
@@ -192,7 +187,6 @@
         ];
         const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
         
-        // 安全邊界檢查，防範公式計算溢出造成崩潰
         finalIndex = Math.max(0, Math.min(51, finalIndex));
         
         const s = suits[Math.floor(finalIndex/13)], v = values[finalIndex%13];
@@ -219,6 +213,7 @@
         if (phase === 'INPUT') drawState.current = { isDrawing: true, startX: e.clientX, startY: e.clientY };
       };
 
+      // 修正：移除了多餘的 </div> 語法錯誤
       const handlePointerUp = (e) => {
         if (isSpectator || !drawState.current.isDrawing) return;
         drawState.current.isDrawing = false;
@@ -226,7 +221,6 @@
         const dx = e.clientX - drawState.current.startX;
         const dy = e.clientY - drawState.current.startY;
         
-        // 降低滑動門檻值到 20px，提升小動作滑動的靈敏度
         if (Math.sqrt(dx*dx + dy*dy) > 20) {
           const getQ = (x, y) => {
             const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
@@ -242,16 +236,15 @@
             
             if (newStrokes.length === 2) { 
               calculateSenderCard(newStrokes); 
-              setMagicianStrokes([]); // 發送後清空
+              setMagicianStrokes([]); 
             }
           } else {
-            // 🌟 容錯修正：如果第二筆滑動方向不符合任何公式定義，不直接卡死，而是清除手勢讓魔術師可以立刻重畫
             setMagicianStrokes([]);
-          </div>
+          }
         }
       };
 
-      // --- 觀眾端 UI ---
+      // 觀眾端 UI
       if (isSpectator) {
         return (
           <div className="w-screen h-screen bg-black flex items-center justify-center relative overflow-hidden" onPointerDown={handlePointerDown}>
@@ -295,7 +288,7 @@
         );
       }
 
-      // --- 魔術師端 UI ---
+      // 魔術師端 UI
       if (phase === 'QR_CODE') {
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(window.location.href + '?room=' + roomId)}`;
         return (
