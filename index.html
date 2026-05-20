@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>超自然AR心靈撲克 (Safari權限完美修正版)</title>
+  <title>超自然心靈撲克 (90%大尺寸相機完美版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -13,14 +13,36 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
-
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-    video { object-fit: cover !important; }
-    /* 隱藏 MindAR 預設的 UI 避免干擾魔術視覺 */
-    .mindar-ui-overlay { display: none !important; } 
+    
+    /* 保留您完美的 10秒緩慢顯影 */
+    @keyframes magicRevealWipe {
+      0% { -webkit-mask-position: 0% 100%; mask-position: 0% 100%; filter: blur(12px) brightness(2); opacity: 0; }
+      20% { opacity: 0.5; }
+      100% { -webkit-mask-position: 0% 0%; mask-position: 0% 0%; filter: blur(0px) brightness(1); opacity: 1; }
+    }
+    .animate-magic-reveal {
+      -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 60%);
+      mask-image: linear-gradient(to bottom, black 40%, transparent 60%);
+      -webkit-mask-size: 100% 250%;
+      mask-size: 100% 250%;
+      animation: magicRevealWipe 10s ease-out forwards;
+    }
+
+    /* 快速切換淡出 */
+    @keyframes fadeOutQuick {
+      0% { opacity: 1; filter: blur(0px); transform: scale(1); }
+      100% { opacity: 0; filter: blur(15px); transform: scale(0.9); }
+    }
+    .animate-fade-out-quick { animation: fadeOutQuick 1.5s ease-in-out forwards; }
+
+    /* 消失動畫 */
+    @keyframes finalDismiss {
+      0% { opacity: 1; filter: blur(0px); }
+      100% { opacity: 0; filter: blur(20px); transform: translateY(-20px); }
+    }
+    .animate-final-dismiss { animation: finalDismiss 3s ease-in-out forwards; }
   </style>
 </head>
 <body>
@@ -29,7 +51,6 @@
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
 
-    // 保留您原本的 Firebase 設定
     const firebaseConfig = {
       apiKey: "AIzaSyCjTKS43McbUswz3afjcQpPjamhoMb-X9c",
       authDomain: "magic-card-app-2f24f.firebaseapp.com",
@@ -45,19 +66,17 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const isSpectator = !!urlParams.get('room');
-    // 🌟 修正：預設房間號碼改為 9257
+    // 🌟 已將預設房間號碼修改為 9257
     const roomId = urlParams.get('room') || "9257"; 
 
     function MagicCardApp() {
       const [phase, setPhase] = useState(isSpectator ? 'INIT' : 'QR_CODE'); 
       const [receivedCard, setReceivedCard] = useState(null);
+      const [imgFailed, setImgFailed] = useState(false);
       const [magicianStrokes, setMagicianStrokes] = useState([]);
       const [flash, setFlash] = useState(false);
 
-      const containerRef = useRef(null);
-      const materialRef = useRef(null);
-      const mindarRef = useRef(null); 
-      
+      const videoRef = useRef(null);
       const phaseRef = useRef(phase);
       const cardRef = useRef(receivedCard);
       const pendingCardRef = useRef(null);
@@ -76,155 +95,81 @@
           if (data && data.card) {
             const newCard = { ...data.card, t: data.timestamp || Date.now() };
             setReceivedCard(prev => {
-              if (!prev) {
-                // 如果還沒點擊按鈕啟動相機，不可搶跑切換 phase
-                if (phaseRef.current !== 'INIT') setPhase('WAITING');
+              if (!prev) { 
+                setImgFailed(false); 
+                // 如果相機還沒開，先留在 INIT 畫面等觀眾按按鈕，不搶跑狀態
+                if (phaseRef.current !== 'INIT') setPhase('WAITING'); 
                 return newCard; 
               }
-              if (prev.t !== newCard.t) {
-                pendingCardRef.current = newCard;
-                if (phaseRef.current !== 'INIT') setPhase('SWITCHING');
-                else return newCard;
-                return prev;
-              }
+              if (prev.t !== newCard.t) { pendingCardRef.current = newCard; setPhase('SWITCHING'); return prev; }
               return prev;
-            });
-          } else {
-            setReceivedCard(prev => { 
-              if (prev === null) return null; 
-              if (phaseRef.current !== 'INIT') setPhase('IDLE');
-              return null; 
             });
           }
         });
         return () => roomRef.off();
       }, [roomId, isSpectator]);
 
-      // 時序控制 (支援魔術師中途換牌或顯影完自動銷毀)
+      // --- 時序控制 ---
       useEffect(() => {
         if (!isSpectator) return;
-        let tSwitch, tDismiss;
+        let tSwitch, tReveal, tDismiss, tIdle;
+
         if (phase === 'SWITCHING') {
-          tSwitch = setTimeout(() => { setReceivedCard(pendingCardRef.current); setPhase('WAITING'); }, 1500);
+          tSwitch = setTimeout(() => { setImgFailed(false); setReceivedCard(pendingCardRef.current); setPhase('WAITING'); }, 1500);
         }
-        if (phase === 'REVEAL') { 
-          tDismiss = setTimeout(() => setPhase('DISMISSING'), 15000); // 展示15秒
+        if (phase === 'REVEALING') {
+          tReveal = setTimeout(() => setPhase('REVEAL'), 10000);
+          const currentT = receivedCard?.t;
+          setTimeout(() => {
+            db.ref('twatch_rooms/' + roomId).get().then(snap => {
+              const data = snap.val();
+              if (data && data.timestamp === currentT) { db.ref('twatch_rooms/' + roomId).remove(); }
+            });
+          }, 60000); 
         }
+        if (phase === 'REVEAL') { tDismiss = setTimeout(() => setPhase('DISMISSING'), 15000); }
+        if (phase === 'DISMISSING') { tIdle = setTimeout(() => { setReceivedCard(null); setPhase('IDLE'); }, 3000); }
+
         return () => {
           if (tSwitch) clearTimeout(tSwitch);
+          if (tReveal) clearTimeout(tReveal);
           if (tDismiss) clearTimeout(tDismiss);
+          if (tIdle) clearTimeout(tIdle);
         };
-      }, [phase, isSpectator]);
+      }, [phase, isSpectator, roomId, receivedCard]);
 
-      // Three.js 異步動態加載撲克牌貼圖
-      useEffect(() => {
-        if (!receivedCard || !materialRef.current) return;
-        const textureLoader = new THREE.TextureLoader();
-        textureLoader.load(receivedCard.imageUrl, (texture) => {
-          if (materialRef.current) {
-            materialRef.current.map = texture;
-            materialRef.current.needsUpdate = true;
-          }
-        });
-      }, [receivedCard]);
-
-      // 確保網頁關閉時相機資源被釋放
-      useEffect(() => {
-        return () => { if (mindarRef.current) { try { mindarRef.current.stop(); } catch(e){} } };
-      }, []);
-
-      // --- 🌟 關鍵修正：由使用者手勢同步觸發的相機請求 ---
-      const startARCamera = async () => {
+      // --- 🌟 完美原生相機請求 (100% 避開 TypeError) ---
+      const startNativeCamera = async () => {
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
-
-        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-          alert("【環境錯誤】網頁未啟用 HTTPS 加密連線，iOS Safari 會強制封鎖相機功能！");
-          return;
-        }
-
-        // 偵測 targets.mind 是否存在，避免 404 造成的假權限錯誤
+        
         try {
-          const fileCheck = await fetch('./targets.mind');
-          if (!fileCheck.ok) {
-            alert("【檔案遺失】找不到 ./targets.mind 特徵檔，請確認該檔案與 index.html 放再同一個資料夾。");
-            return;
+          // 調用 iOS 官方最乾淨的原生後置鏡頭請求
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { 
+              facingMode: 'environment',
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          });
+          
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
           }
-        } catch (e) {
-          alert("無法讀取目標特徵檔，請檢查網路。");
-          return;
-        }
 
-        try {
-          // 初始化 MindAR
-          const mindarThree = new window.MINDAR.IMAGE.MindARThree({
-            container: containerRef.current,
-            imageTargetSrc: './targets.mind' 
-          });
-          const { renderer, scene, camera } = mindarThree;
-
-          // 建立 3D 撲克牌 (標準比例 63:88)
-          const anchor = mindarThree.addAnchor(0);
-          const geometry = new THREE.PlaneGeometry(1, 88/63);
-          const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
-          materialRef.current = material;
-          const plane = new THREE.Mesh(geometry, material);
-          anchor.group.add(plane);
-
-          const clock = new THREE.Clock();
-          let currentOpacity = 0;
-
-          // 觀眾把鏡頭對準實體卡片成功
-          anchor.onTargetFound = () => {
-            if (phaseRef.current === 'WAITING' && cardRef.current) {
-              phaseRef.current = 'REVEALING';
-              setPhase('REVEALING');
-              if (navigator.vibrate) navigator.vibrate(20); // 震動提示
-            }
-          };
-
-          // AR 渲染與漸變動畫迴圈
-          renderer.setAnimationLoop(() => {
-            const delta = clock.getDelta();
-            
-            if (phaseRef.current === 'REVEALING') {
-              currentOpacity += delta * 0.33; // 3秒緩慢顯影
-              if (currentOpacity >= 1) { currentOpacity = 1; phaseRef.current = 'REVEAL'; setPhase('REVEAL'); }
-            } else if (phaseRef.current === 'REVEAL') {
-              currentOpacity = 1;
-            } else if (phaseRef.current === 'DISMISSING') {
-              currentOpacity -= delta * 0.33; // 3秒淡出消失
-              if (currentOpacity <= 0) {
-                currentOpacity = 0; phaseRef.current = 'IDLE'; setPhase('IDLE');
-                db.ref('twatch_rooms/' + roomId).remove(); // 變透明後自動銷毀資料庫證據
-                setReceivedCard(null);
-              }
-            } else {
-              if (phaseRef.current === 'WAITING' || phaseRef.current === 'IDLE') currentOpacity = 0;
-            }
-            
-            if (materialRef.current) materialRef.current.opacity = currentOpacity;
-            renderer.render(scene, camera);
-          });
-
-          // 🌟 喚醒 Safari 相機權限視窗
-          await mindarThree.start();
-          mindarRef.current = mindarThree;
-
-          // 根據當前資料庫有沒有牌決定下一步 UI
+          // 成功開啟相機後，根據目前 Firebase 是否已有牌來決定 UI 階段
           if (cardRef.current) {
-            setPhase('WAITING'); 
+            setPhase('WAITING');
           } else {
-            setPhase('IDLE');    
+            setPhase('IDLE');
           }
-
         } catch (err) {
-          console.error("Safari 啟動失敗:", err);
-          alert(`【Safari 拒絕原因】\n錯誤: ${err.name}\n\n請點擊網址列左側「aA」圖示 ->「網站設定」-> 將相機權限改為「允許」，並關閉其他霸佔相機的背景 App。`);
-          setPhase('INIT'); 
+          console.error("相機啟動失敗:", err);
+          alert("無法開啟相機！請確認已在「手機設定 -> Safari」中將相機權限設為「允許」。");
         }
       };
 
-      // --- 魔術師端發送與算牌 (完整保留您的原創公式) ---
+      // --- 魔術師端發牌控制 ---
       const sendCard = (cardData) => {
         db.ref('twatch_rooms/' + roomId).set({ card: cardData, timestamp: Date.now() })
           .then(() => { setFlash(true); setTimeout(() => setFlash(false), 400); });
@@ -233,11 +178,9 @@
       const calculateSenderCard = (strokes) => {
         if (strokes.length < 2) return;
         const s1 = strokes[0], s2 = strokes[1];
-        // 🌟 完整保留您原本檔案中的計算公式
         let suitBase = [0, 13, 26, 39][s1.edge];
         let isSecondHalf = (s1.dir === -1);
         let finalIndex = (s2.edge === s1.edge) ? suitBase + 12 : suitBase + (isSecondHalf ? 6 : 0) + ((s2.edge - s1.edge + 4) % 4 - 1) * 2 + (s2.dir === 1 ? 0 : 1);
-        
         const suits = [{n:'club', i:'♣', c:'text-slate-900'}, {n:'diamond', i:'♦', c:'text-red-600'}, {n:'heart', i:'♥', c:'text-red-600'}, {n:'spade', i:'♠', c:'text-slate-900'}];
         const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
         const s = suits[Math.floor(finalIndex/13)], v = values[finalIndex%13];
@@ -249,10 +192,19 @@
         const now = Date.now();
         const isDoubleTap = now - lastTapTime.current < 400;
         lastTapTime.current = now;
-        if (isSpectator) return;
+        
+        if (isSpectator) {
+          // 觀眾端點擊事件控制
+          if (phase === 'WAITING') { 
+            setPhase('REVEALING'); 
+            if (navigator.vibrate) navigator.vibrate(20); 
+          }
+          return;
+        }
+        
         if (isDoubleTap) {
-          if (phase === 'QR_CODE') { db.ref('twatch_rooms/' + roomId).remove(); setPhase('INPUT'); }
-          else if (phase === 'INPUT') { sendCard({ icon: '🃏', color: 'text-slate-900', value: 'JOKER', imageUrl: './cards/joker_black.png' }); }
+          if (phase === 'QR_CODE') setPhase('INPUT');
+          else if (phase === 'INPUT') sendCard({ icon: '🃏', color: 'text-slate-900', value: 'JOKER', imageUrl: './cards/joker_black.png' });
           return;
         }
         if (phase === 'INPUT') drawState.current = { isDrawing: true, startX: e.clientX, startY: e.clientY };
@@ -263,7 +215,10 @@
         drawState.current.isDrawing = false;
         const dx = e.clientX - drawState.current.startX, dy = e.clientY - drawState.current.startY;
         if (Math.sqrt(dx*dx + dy*dy) > 30) {
-          const getQ = (x, y) => { const cx = window.innerWidth / 2, cy = window.innerHeight / 2; return x < cx ? (y < cy ? 1 : 4) : (y < cy ? 2 : 3); };
+          const getQ = (x, y) => {
+            const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+            return x < cx ? (y < cy ? 1 : 4) : (y < cy ? 2 : 3);
+          };
           const sQ = getQ(drawState.current.startX, drawState.current.startY), eQ = getQ(e.clientX, e.clientY);
           const map = {"41":{e:3,d:1},"14":{e:3,d:-1},"12":{e:0,d:1},"21":{e:0,d:-1},"23":{e:1,d:1},"32":{e:1,d:-1},"34":{e:2,d:1},"43":{e:2,d:-1}};
           const stroke = map[`${sQ}${eQ}`];
@@ -275,32 +230,40 @@
         }
       };
 
-      // --- 觀眾端 UI (結合相機底層) ---
+      // --- 觀眾端 UI (嵌入實時原生背景相機) ---
       if (isSpectator) {
         return (
-          <div className="w-screen h-screen bg-black relative overflow-hidden">
-            {/* MindAR 相機畫面渲染容器 */}
-            <div ref={containerRef} className="w-screen h-screen absolute inset-0 z-0"></div>
+          <div className="w-screen h-screen bg-black flex items-center justify-center relative overflow-hidden" onPointerDown={handlePointerDown}>
             
-            {/* 上層魔術提示 UI */}
+            {/* 🌟 實時原生背景相機串流 */}
+            <video 
+              ref={videoRef}
+              autoPlay 
+              playsInline 
+              muted 
+              className="absolute inset-0 w-full h-full object-cover z-0"
+            />
+
+            {/* 上層魔術氛圍 UI 層 */}
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none select-none">
+              
               {phase === 'INIT' && (
                 <button 
                   className="pointer-events-auto text-white bg-indigo-600 px-8 py-4 rounded-full text-sm font-bold tracking-widest shadow-2xl animate-pulse transition active:scale-95"
-                  onClick={startARCamera}
+                  onClick={startNativeCamera}
                 >
                   開啟心靈感應鏡頭
                 </button>
               )}
               
               {phase === 'IDLE' && (
-                <div className="text-white/40 text-xs tracking-widest bg-black/60 px-5 py-2.5 rounded-full backdrop-blur-md animate-pulse">
+                <div className="text-white/60 text-xs tracking-widest bg-black/70 border border-white/10 px-5 py-2.5 rounded-full backdrop-blur-md animate-pulse">
                   等待魔術師的感知訊號...
                 </div>
               )}
 
               {phase === 'WAITING' && (
-                <div className="text-emerald-400 border border-emerald-500/20 bg-black/70 px-6 py-3 rounded-full animate-pulse tracking-widest text-sm font-medium backdrop-blur-md">
+                <div className="text-emerald-400 border border-emerald-500/30 bg-black/80 px-8 py-4 rounded-full animate-pulse tracking-widest text-sm font-bold backdrop-blur-md cursor-pointer">
                   請將鏡頭對準實體卡片牌背
                 </div>
               )}
@@ -311,6 +274,24 @@
                 </div>
               )}
             </div>
+
+            {/* 🌟 完美的 90% 大尺寸撲克牌渲染 (完美浮現在相機畫面之上) */}
+            {receivedCard && (phase === 'REVEALING' || phase === 'REVEAL' || phase === 'DISMISSING' || phase === 'SWITCHING') && (
+              <div className={`relative z-20 transition-all duration-1000 ${phase === 'REVEALING' ? 'animate-magic-reveal' : ''} ${phase === 'SWITCHING' ? 'animate-fade-out-quick' : ''} ${phase === 'DISMISSING' ? 'animate-final-dismiss' : ''}`}>
+                {imgFailed ? (
+                  <div className="w-[90vw] max-w-[400px] aspect-[63/88] bg-white rounded-xl flex flex-col items-center justify-center shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+                    <div className={`text-7xl font-bold ${receivedCard.color} mb-2`}>{receivedCard.value}</div>
+                    <div className={`text-[120px] ${receivedCard.color} leading-none`}>{receivedCard.icon}</div>
+                  </div>
+                ) : (
+                  <img 
+                    src={receivedCard.imageUrl} 
+                    onError={() => setImgFailed(true)}
+                    className="w-[90vw] max-w-[400px] h-auto aspect-[63/88] object-contain drop-shadow-[0_0_40px_rgba(0,0,0,0.9)]" 
+                  />
+                )}
+              </div>
+            )}
           </div>
         );
       }
