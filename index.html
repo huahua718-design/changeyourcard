@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>超自然心靈撲克 (90%大尺寸相機完美版)</title>
+  <title>超自然心靈撲克 (訊號修復完美版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -16,7 +16,7 @@
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
     
-    /* 保留您完美的 10秒緩慢顯影 */
+    /* 10秒緩慢顯影 */
     @keyframes magicRevealWipe {
       0% { -webkit-mask-position: 0% 100%; mask-position: 0% 100%; filter: blur(12px) brightness(2); opacity: 0; }
       20% { opacity: 0.5; }
@@ -66,7 +66,6 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const isSpectator = !!urlParams.get('room');
-    // 🌟 已將預設房間號碼修改為 9257
     const roomId = urlParams.get('room') || "9257"; 
 
     function MagicCardApp() {
@@ -86,7 +85,14 @@
       useEffect(() => { phaseRef.current = phase; }, [phase]);
       useEffect(() => { cardRef.current = receivedCard; }, [receivedCard]);
 
-      // --- 監聽 Firebase 資料 ---
+      // --- 🌟 修正：初始化魔術師端時，自動在資料庫建立/重置房間，確保管道暢通 ---
+      useEffect(() => {
+        if (isSpectator) return;
+        db.ref('twatch_rooms/' + roomId).update({ initialized: true })
+          .catch(err => console.error("Firebase 房間初始化失敗:", err));
+      }, [isSpectator, roomId]);
+
+      // --- 監聽 Firebase 資料 (觀眾端) ---
       useEffect(() => {
         if (!isSpectator) return;
         const roomRef = db.ref('twatch_rooms/' + roomId);
@@ -97,7 +103,6 @@
             setReceivedCard(prev => {
               if (!prev) { 
                 setImgFailed(false); 
-                // 如果相機還沒開，先留在 INIT 畫面等觀眾按按鈕，不搶跑狀態
                 if (phaseRef.current !== 'INIT') setPhase('WAITING'); 
                 return newCard; 
               }
@@ -123,7 +128,7 @@
           setTimeout(() => {
             db.ref('twatch_rooms/' + roomId).get().then(snap => {
               const data = snap.val();
-              if (data && data.timestamp === currentT) { db.ref('twatch_rooms/' + roomId).remove(); }
+              if (data && data.timestamp === currentT) { db.ref('twatch_rooms/' + roomId).update({ card: null }); }
             });
           }, 60000); 
         }
@@ -138,53 +143,61 @@
         };
       }, [phase, isSpectator, roomId, receivedCard]);
 
-      // --- 🌟 完美原生相機請求 (100% 避開 TypeError) ---
+      // --- 原生相機開啟 ---
       const startNativeCamera = async () => {
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
-        
         try {
-          // 調用 iOS 官方最乾淨的原生後置鏡頭請求
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
-              facingMode: 'environment',
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
             audio: false
           });
-          
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-
-          // 成功開啟相機後，根據目前 Firebase 是否已有牌來決定 UI 階段
-          if (cardRef.current) {
-            setPhase('WAITING');
-          } else {
-            setPhase('IDLE');
-          }
+          if (videoRef.current) videoRef.current.srcObject = stream;
+          if (cardRef.current) setPhase('WAITING');
+          else setPhase('IDLE');
         } catch (err) {
-          console.error("相機啟動失敗:", err);
           alert("無法開啟相機！請確認已在「手機設定 -> Safari」中將相機權限設為「允許」。");
         }
       };
 
-      // --- 魔術師端發牌控制 ---
+      // --- 🌟 修正：強固型發牌控制 (含防卡死與報錯診斷) ---
       const sendCard = (cardData) => {
-        db.ref('twatch_rooms/' + roomId).set({ card: cardData, timestamp: Date.now() })
-          .then(() => { setFlash(true); setTimeout(() => setFlash(false), 400); });
+        db.ref('twatch_rooms/' + roomId).update({
+          card: cardData,
+          timestamp: Date.now()
+        })
+        .then(() => {
+          // 成功送出後，魔術師端才會閃白光提示
+          setFlash(true); 
+          setTimeout(() => setFlash(false), 400); 
+        })
+        .catch((err) => {
+          // 如果發送失敗，立刻彈出視窗提示原因，不默默吃掉錯誤
+          alert("【傳輸失敗】無法寫入 Firebase 資料庫，請檢查網路或 Firebase 權限。\n錯誤訊息: " + err.message);
+        });
       };
 
+      // 算牌核心公式
       const calculateSenderCard = (strokes) => {
         if (strokes.length < 2) return;
         const s1 = strokes[0], s2 = strokes[1];
         let suitBase = [0, 13, 26, 39][s1.edge];
         let isSecondHalf = (s1.dir === -1);
         let finalIndex = (s2.edge === s1.edge) ? suitBase + 12 : suitBase + (isSecondHalf ? 6 : 0) + ((s2.edge - s1.edge + 4) % 4 - 1) * 2 + (s2.dir === 1 ? 0 : 1);
-        const suits = [{n:'club', i:'♣', c:'text-slate-900'}, {n:'diamond', i:'♦', c:'text-red-600'}, {n:'heart', i:'♥', c:'text-red-600'}, {n:'spade', i:'♠', c:'text-slate-900'}];
+        
+        const suits = [
+          {n:'club', i:'♣', c:'text-slate-900'}, 
+          {n:'diamond', i:'♦', c:'text-red-600'}, 
+          {n:'heart', i:'♥', c:'text-red-600'}, 
+          {n:'spade', i:'♠', c:'text-slate-900'}
+        ];
         const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+        
+        // 安全邊界檢查，防範公式計算溢出造成崩潰
+        finalIndex = Math.max(0, Math.min(51, finalIndex));
+        
         const s = suits[Math.floor(finalIndex/13)], v = values[finalIndex%13];
         const rv = {'J':'jack','Q':'queen','K':'king','A':'1'}[v] || v;
+        
         sendCard({ icon: s.i, color: s.c, value: v, imageUrl: `./cards/${s.n}_${rv}.png` });
       };
 
@@ -194,11 +207,7 @@
         lastTapTime.current = now;
         
         if (isSpectator) {
-          // 觀眾端點擊事件控制
-          if (phase === 'WAITING') { 
-            setPhase('REVEALING'); 
-            if (navigator.vibrate) navigator.vibrate(20); 
-          }
+          if (phase === 'WAITING') { setPhase('REVEALING'); if (navigator.vibrate) navigator.vibrate(20); }
           return;
         }
         
@@ -213,8 +222,12 @@
       const handlePointerUp = (e) => {
         if (isSpectator || !drawState.current.isDrawing) return;
         drawState.current.isDrawing = false;
-        const dx = e.clientX - drawState.current.startX, dy = e.clientY - drawState.current.startY;
-        if (Math.sqrt(dx*dx + dy*dy) > 30) {
+        
+        const dx = e.clientX - drawState.current.startX;
+        const dy = e.clientY - drawState.current.startY;
+        
+        // 降低滑動門檻值到 20px，提升小動作滑動的靈敏度
+        if (Math.sqrt(dx*dx + dy*dy) > 20) {
           const getQ = (x, y) => {
             const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
             return x < cx ? (y < cy ? 1 : 4) : (y < cy ? 2 : 3);
@@ -222,52 +235,43 @@
           const sQ = getQ(drawState.current.startX, drawState.current.startY), eQ = getQ(e.clientX, e.clientY);
           const map = {"41":{e:3,d:1},"14":{e:3,d:-1},"12":{e:0,d:1},"21":{e:0,d:-1},"23":{e:1,d:1},"32":{e:1,d:-1},"34":{e:2,d:1},"43":{e:2,d:-1}};
           const stroke = map[`${sQ}${eQ}`];
+          
           if (stroke) {
             const newStrokes = [...magicianStrokes, {edge:stroke.e, dir:stroke.d}];
             setMagicianStrokes(newStrokes);
-            if (newStrokes.length === 2) { calculateSenderCard(newStrokes); setMagicianStrokes([]); }
-          }
+            
+            if (newStrokes.length === 2) { 
+              calculateSenderCard(newStrokes); 
+              setMagicianStrokes([]); // 發送後清空
+            }
+          } else {
+            // 🌟 容錯修正：如果第二筆滑動方向不符合任何公式定義，不直接卡死，而是清除手勢讓魔術師可以立刻重畫
+            setMagicianStrokes([]);
+          </div>
         }
       };
 
-      // --- 觀眾端 UI (嵌入實時原生背景相機) ---
+      // --- 觀眾端 UI ---
       if (isSpectator) {
         return (
           <div className="w-screen h-screen bg-black flex items-center justify-center relative overflow-hidden" onPointerDown={handlePointerDown}>
-            
-            {/* 🌟 實時原生背景相機串流 */}
-            <video 
-              ref={videoRef}
-              autoPlay 
-              playsInline 
-              muted 
-              className="absolute inset-0 w-full h-full object-cover z-0"
-            />
-
-            {/* 上層魔術氛圍 UI 層 */}
+            <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover z-0" />
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none select-none">
-              
               {phase === 'INIT' && (
-                <button 
-                  className="pointer-events-auto text-white bg-indigo-600 px-8 py-4 rounded-full text-sm font-bold tracking-widest shadow-2xl animate-pulse transition active:scale-95"
-                  onClick={startNativeCamera}
-                >
+                <button className="pointer-events-auto text-white bg-indigo-600 px-8 py-4 rounded-full text-sm font-bold tracking-widest shadow-2xl animate-pulse transition active:scale-95" onClick={startNativeCamera}>
                   開啟心靈感應鏡頭
                 </button>
               )}
-              
               {phase === 'IDLE' && (
                 <div className="text-white/60 text-xs tracking-widest bg-black/70 border border-white/10 px-5 py-2.5 rounded-full backdrop-blur-md animate-pulse">
                   等待魔術師的感知訊號...
                 </div>
               )}
-
               {phase === 'WAITING' && (
                 <div className="text-emerald-400 border border-emerald-500/30 bg-black/80 px-8 py-4 rounded-full animate-pulse tracking-widest text-sm font-bold backdrop-blur-md cursor-pointer">
                   請將鏡頭對準實體卡片牌背
                 </div>
               )}
-              
               {phase === 'REVEALING' && (
                 <div className="text-white/50 text-xs tracking-widest bg-black/40 px-4 py-2 rounded-full backdrop-blur-sm">
                   正在讀取心靈磁場...
@@ -275,7 +279,6 @@
               )}
             </div>
 
-            {/* 🌟 完美的 90% 大尺寸撲克牌渲染 (完美浮現在相機畫面之上) */}
             {receivedCard && (phase === 'REVEALING' || phase === 'REVEAL' || phase === 'DISMISSING' || phase === 'SWITCHING') && (
               <div className={`relative z-20 transition-all duration-1000 ${phase === 'REVEALING' ? 'animate-magic-reveal' : ''} ${phase === 'SWITCHING' ? 'animate-fade-out-quick' : ''} ${phase === 'DISMISSING' ? 'animate-final-dismiss' : ''}`}>
                 {imgFailed ? (
@@ -284,11 +287,7 @@
                     <div className={`text-[120px] ${receivedCard.color} leading-none`}>{receivedCard.icon}</div>
                   </div>
                 ) : (
-                  <img 
-                    src={receivedCard.imageUrl} 
-                    onError={() => setImgFailed(true)}
-                    className="w-[90vw] max-w-[400px] h-auto aspect-[63/88] object-contain drop-shadow-[0_0_40px_rgba(0,0,0,0.9)]" 
-                  />
+                  <img src={receivedCard.imageUrl} onError={() => setImgFailed(true)} className="w-[90vw] max-w-[400px] h-auto aspect-[63/88] object-contain drop-shadow-[0_0_40px_rgba(0,0,0,0.9)]" />
                 )}
               </div>
             )}
