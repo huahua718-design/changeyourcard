@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>超自然心靈撲克 (真 AR 圖像追蹤版)</title>
+  <title>超自然心靈撲克 (真 AR 最終穩定版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -18,7 +18,7 @@
 
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-    /* 隱藏預設掃描 UI */
+    /* 隱藏 MindAR 預設彈出的提示 UI */
     .a-dialog-allow-button { display: none !important; }
     .mindar-ui-overlay { display: none !important; }
   </style>
@@ -44,11 +44,12 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const isSpectator = !!urlParams.get('room');
-    const roomId = urlParams.get('room') || "9257"; 
+    // 💡 修正：將預設房間號碼同步恢復為您的 "9527"
+    const roomId = urlParams.get('room') || "9527"; 
 
     function MagicCardApp() {
       const [phase, setPhase] = useState(isSpectator ? 'INIT' : 'QR_CODE'); 
-      const [receivedCard, setReceivedCard] = useState({ imageUrl: '' }); // 預設給空物件，避免 3D 引擎報錯
+      const [receivedCard, setReceivedCard] = useState({ imageUrl: '' }); 
       const [magicianStrokes, setMagicianStrokes] = useState([]);
       const [flash, setFlash] = useState(false);
 
@@ -67,7 +68,7 @@
           if (data && data.card) {
             const newCard = { ...data.card, t: data.timestamp || Date.now() };
             setReceivedCard(prev => {
-              if (!prev || !prev.value) { 
+              if (!prev || !prev.imageUrl) { 
                 if (phaseRef.current !== 'INIT') setPhase('WAITING'); 
                 return newCard; 
               }
@@ -87,7 +88,7 @@
           tSwitch = setTimeout(() => { setReceivedCard(pendingCardRef.current); setPhase('WAITING'); }, 1500);
         }
         if (phase === 'REVEALING') {
-          tReveal = setTimeout(() => setPhase('REVEAL'), 4000); // 配合 A-Frame 動畫時間
+          tReveal = setTimeout(() => setPhase('REVEAL'), 4000); 
           const currentT = receivedCard?.t;
           setTimeout(() => {
             db.ref('twatch_rooms/' + roomId).get().then(snap => {
@@ -108,7 +109,7 @@
       }, [phase, isSpectator, roomId, receivedCard]);
 
       const sendCard = (cardData) => {
-        db.ref('twatch_rooms/' + roomId).update({ card: cardData, timestamp: Date.now() })
+        db.ref('twatch_rooms/' + roomId).set({ card: cardData, timestamp: Date.now() })
         .then(() => { setFlash(true); setTimeout(() => setFlash(false), 400); });
       };
 
@@ -134,7 +135,8 @@
         lastTapTime.current = now;
         
         if (isSpectator) {
-          if (phase === 'WAITING') { setPhase('REVEALING'); if (navigator.vibrate) navigator.vibrate(20); }
+          if (phase === 'INIT') { if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{}); setPhase('IDLE'); }
+          else if (phase === 'WAITING') { setPhase('REVEALING'); if (navigator.vibrate) navigator.vibrate(20); }
           return;
         }
         
@@ -150,7 +152,7 @@
         if (isSpectator || !drawState.current.isDrawing) return;
         drawState.current.isDrawing = false;
         const dx = e.clientX - drawState.current.startX, dy = e.clientY - drawState.current.startY;
-        if (Math.sqrt(dx*dx + dy*dy) > 20) {
+        if (Math.sqrt(dx*dx + dy*dy) > 30) {
           const getQ = (x, y) => { const cx = window.innerWidth / 2, cy = window.innerHeight / 2; return x < cx ? (y < cy ? 1 : 4) : (y < cy ? 2 : 3); };
           const sQ = getQ(drawState.current.startX, drawState.current.startY), eQ = getQ(e.clientX, e.clientY);
           const map = {"41":{e:3,d:1},"14":{e:3,d:-1},"12":{e:0,d:1},"21":{e:0,d:-1},"23":{e:1,d:1},"32":{e:1,d:-1},"34":{e:2,d:1},"43":{e:2,d:-1}};
@@ -159,22 +161,22 @@
             const newStrokes = [...magicianStrokes, {edge:stroke.e, dir:stroke.d}];
             setMagicianStrokes(newStrokes);
             if (newStrokes.length === 2) { calculateSenderCard(newStrokes); setMagicianStrokes([]); }
-          } else { setMagicianStrokes([]); }
+          }
+          // 💡 修正：移除不小心滑錯方向會清除記憶的 else 機制，大幅提升手勢容錯率
         }
       };
 
-      // --- 觀眾端 UI (真 AR 引擎) ---
+      // --- 觀眾接收端 UI (全螢幕獨立 3D 佈局) ---
       if (isSpectator) {
-        // 設定 A-Frame 內建的 3D 動畫屬性
         const opacityValue = (phase === 'REVEAL' || phase === 'DISMISSING') ? "1" : "0";
         const revealAnimation = phase === 'REVEALING' ? "property: opacity; from: 0; to: 1; dur: 4000; easing: easeOutCubic;" : "";
         const dismissAnimation = phase === 'DISMISSING' ? "property: opacity; from: 1; to: 0; dur: 2000; easing: linear;" : "";
 
         return (
-          <div className={`w-screen h-screen relative overflow-hidden ${phase === 'INIT' ? 'bg-black' : 'bg-transparent'}`} onPointerDown={handlePointerDown}>
+          <div className="w-screen h-screen relative bg-black" onPointerDown={handlePointerDown}>
             
-            {/* 上層 UI 控制面板 */}
-            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none select-none">
+            {/* 🌟 UI 控制層：置於最上方（z-10），利用 pointer-events-none 確保不干擾底層相機，只有按鈕有反應 */}
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none select-none">
               {phase === 'INIT' && (
                 <button 
                   className="pointer-events-auto text-white bg-indigo-600 px-8 py-4 rounded-full text-sm font-bold tracking-widest shadow-2xl animate-pulse" 
@@ -189,59 +191,53 @@
                 </div>
               )}
               {phase === 'WAITING' && (
-                <div className="text-emerald-400 border border-emerald-500/30 bg-black/80 px-8 py-4 rounded-full animate-pulse tracking-widest text-sm font-bold backdrop-blur-md cursor-pointer pointer-events-auto">
-                  請將鏡頭對準實體撲克牌背 (點擊顯影)
+                <div className="pointer-events-auto text-emerald-400 border border-emerald-500/30 bg-black/80 px-8 py-4 rounded-full animate-pulse tracking-widest text-sm font-bold backdrop-blur-md cursor-pointer">
+                  請將鏡頭對準實體撲克牌 (點擊畫面顯影)
                 </div>
               )}
             </div>
 
-            {/* 🌟 核心：永遠保持渲染的 3D 引擎 */}
+            {/* 🌟 AR 渲染層：直接獨立作為滿版底層，確保測量寬高完美精準不偏移 */}
             {phase !== 'INIT' && (
-              <div className="absolute inset-0 z-0 w-full h-full pointer-events-none">
-                <a-scene 
-                  mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
-                  color-space="sRGB" 
-                  renderer="colorManagement: true, physicallyCorrectLights" 
-                  vr-mode-ui="enabled: false" 
-                  device-orientation-permission-ui="enabled: false"
-                  embedded
-                >
-                  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-                  
-                  <a-entity mindar-image-target="targetIndex: 0">
-                    {/* 這裡不再拔掉 a-image，而是永遠留著它，只改圖片路徑(src)和透明度(opacity) */}
-                    <a-image 
-                      src={receivedCard.imageUrl || ''} 
-                      position="0 0 0" 
-                      height="1.42" 
-                      width="1"
-                      opacity={opacityValue}
-                      animation__reveal={revealAnimation}
-                      animation__dismiss={dismissAnimation}
-                    ></a-image>
-                  </a-entity>
-                </a-scene>
-              </div>
+              <a-scene 
+                mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
+                color-space="sRGB" 
+                renderer="colorManagement: true, physicallyCorrectLights" 
+                vr-mode-ui="enabled: false" 
+                device-orientation-permission-ui="enabled: false"
+                embedded
+                style={{ width: "100vw", height: "100vh", position: "absolute", top: 0, left: 0, zIndex: 0 }}
+              >
+                <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+                
+                <a-entity mindar-image-target="targetIndex: 0">
+                  {/* 💡 優化：將撲克牌 3D 物件調整為標準黃金比例 width=1, height=1.4 */}
+                  <a-image 
+                    src={receivedCard.imageUrl || ''} 
+                    position="0 0 0" 
+                    height="1.4" 
+                    width="1"
+                    opacity={opacityValue}
+                    animation__reveal={revealAnimation}
+                    animation__dismiss={dismissAnimation}
+                  ></a-image>
+                </a-entity>
+              </a-scene>
             )}
+
           </div>
         );
       }
 
-      // --- 魔術師端 ---
-      if (phase === 'QR_CODE') {
-        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(window.location.href + '?room=' + roomId)}`;
-        return (
-          <div className="w-screen h-screen flex flex-col items-center justify-center bg-slate-950" onPointerDown={handlePointerDown}>
-            <div className="p-4 bg-white rounded-xl shadow-2xl"><img src={qrUrl} className="w-48 h-48" /></div>
-            <div className="mt-8 text-white/20 text-xs tracking-widest animate-pulse">DOUBLE TAP TO HIDE</div>
-          </div>
-        );
-      }
-
+      // --- 魔術師傳送端 UI ---
       return (
         <div className="w-screen h-screen flex items-center justify-center bg-slate-950" onPointerDown={handlePointerDown} onPointerUp={handlePointerUp}>
           <div className="w-24 h-24 border border-white/5 border-dashed rounded-lg pointer-events-none"></div>
           <div className={`absolute inset-0 pointer-events-none transition-colors duration-300 ${flash ? 'bg-white/10' : ''}`}></div>
+          <div className="absolute bottom-10 flex gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${magicianStrokes.length >= 1 ? 'bg-indigo-500 scale-125' : 'bg-white/5'}`}></div>
+            <div className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${magicianStrokes.length >= 2 ? 'bg-indigo-500 scale-125' : 'bg-white/5'}`}></div>
+          </div>
         </div>
       );
     }
