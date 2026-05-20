@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>超自然心靈撲克 (MindAR 追蹤回歸版)</title>
+  <title>超自然心靈撲克 (MindAR 鏡頭修復版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -97,7 +97,7 @@
           tSwitch = setTimeout(() => { setReceivedCard(pendingCardRef.current); setPhase('WAITING'); }, 1500);
         }
         if (phase === 'REVEALING') {
-          tReveal = setTimeout(() => setPhase('REVEAL'), 10000);
+          tReveal = setTimeout(() => setPhase('REVEAL'), 3000); // 縮短為 3 秒顯現
           const currentT = receivedCard?.t;
           setTimeout(() => {
             db.ref('twatch_rooms/' + roomId).get().then(snap => {
@@ -177,10 +177,11 @@
       // --- 觀眾端 UI (MindAR 核心) ---
       if (isSpectator) {
         return (
-          <div className="w-screen h-screen bg-black relative overflow-hidden" onPointerDown={handlePointerDown}>
+          // 🌟 關鍵修正：當啟動相機後 (phase !== 'INIT')，背景必須變成透明 (bg-transparent)，否則會把相機畫面蓋住！
+          <div className={`w-screen h-screen relative overflow-hidden ${phase === 'INIT' ? 'bg-black' : 'bg-transparent'}`} onPointerDown={handlePointerDown}>
             
-            {/* 上層 UI 控制面板 */}
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none select-none">
+            {/* 上層 UI 控制面板：提高 z-index 確保字體浮在相機上面 */}
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none select-none">
               {phase === 'INIT' && (
                 <button 
                   className="pointer-events-auto text-white bg-indigo-600 px-8 py-4 rounded-full text-sm font-bold tracking-widest shadow-2xl animate-pulse transition active:scale-95" 
@@ -201,33 +202,36 @@
               )}
             </div>
 
-            {/* 🌟 MindAR / A-Frame 場景 (防呆渲染：只要離開 INIT 就常駐，避免重新渲染導致崩潰) */}
+            {/* 🌟 MindAR / A-Frame 場景：放在最下層 z-0 */}
             {phase !== 'INIT' && (
-              <a-scene 
-                mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
-                color-space="sRGB" 
-                renderer="colorManagement: true, physicallyCorrectLights" 
-                vr-mode-ui="enabled: false" 
-                device-orientation-permission-ui="enabled: false"
-                className="absolute inset-0 z-0 w-full h-full"
-              >
-                <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-                
-                {/* targetIndex: 0 對應到你的 targets.mind 裡面的第一張圖 */}
-                <a-entity mindar-image-target="targetIndex: 0">
-                  {/* 使用 A-Frame 的動畫機制來達成完美的 10 秒漸變顯影 */}
-                  <a-image 
-                    src={receivedCard ? receivedCard.imageUrl : ""} 
-                    position="0 0 0" 
-                    height="1.42" 
-                    width="1"
-                    visible={!!receivedCard && phase !== 'WAITING'}
-                    opacity={phase === 'REVEAL' ? "1" : "0"}
-                    animation__reveal={phase === 'REVEALING' ? "property: opacity; from: 0; to: 1; dur: 10000; easing: easeOutQuad;" : ""}
-                    animation__dismiss={phase === 'DISMISSING' ? "property: opacity; from: 1; to: 0; dur: 3000; easing: linear;" : ""}
-                  ></a-image>
-                </a-entity>
-              </a-scene>
+              <div className="absolute inset-0 z-0 w-full h-full pointer-events-none">
+                <a-scene 
+                  mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
+                  color-space="sRGB" 
+                  renderer="colorManagement: true, physicallyCorrectLights" 
+                  vr-mode-ui="enabled: false" 
+                  device-orientation-permission-ui="enabled: false"
+                  embedded
+                >
+                  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+                  
+                  <a-entity mindar-image-target="targetIndex: 0">
+                    {/* A-Frame 內建的 3秒 動畫顯影效果 */}
+                    {receivedCard && (
+                      <a-image 
+                        src={receivedCard.imageUrl} 
+                        position="0 0 0" 
+                        height="1.42" 
+                        width="1"
+                        visible={phase !== 'WAITING'}
+                        opacity={phase === 'REVEAL' ? "1" : "0"}
+                        animation__reveal={phase === 'REVEALING' ? "property: opacity; from: 0; to: 1; dur: 3000; easing: easeOutQuad;" : ""}
+                        animation__dismiss={phase === 'DISMISSING' ? "property: opacity; from: 1; to: 0; dur: 3000; easing: linear;" : ""}
+                      ></a-image>
+                    )}
+                  </a-entity>
+                </a-scene>
+              </div>
             )}
           </div>
         );
