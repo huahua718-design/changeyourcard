@@ -3,136 +3,54 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>虛擬撲克魔術 (純CSS防禦安全版)</title>
+  <title>虛擬撲克魔術 (極速消失 + 黑畫面懸疑版)</title>
   
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <style>
-    /* 核心基礎樣式 - 確保即使 JavaScript 或 外部樣式壞掉，底層也絕對不爆框 */
-    html, body { 
-      margin: 0; padding: 0; width: 100%; height: 100%; 
-      overflow: hidden; touch-action: none; 
-      user-select: none; -webkit-user-select: none; 
-      background-color: #020617;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-
-    /* 真正安全的滿版相機背景 */
-    .camera-bg {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      object-fit: cover;
-      z-index: 1;
-    }
-
-    /* 隱藏專用類別 (強制執行，不依賴 Tailwind) */
-    .strictly-hidden {
-      display: none !important;
-    }
-
-    /* 絕對置中容器 */
-    .absolute-center {
-      position: absolute;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-    }
-
-    /* 全螢幕覆蓋層 */
-    .screen-overlay {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-
-    /* 撲克牌精準顯影動畫 (融合絕對置中偏置，防止圖片歪斜) */
-    @keyframes preciseReveal {
-      0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7) translateY(30px) rotateX(-15deg); }
-      100% { opacity: 1; transform: translate(-50%, -50%) scale(1) translateY(0) rotateX(0deg); }
+    /* 修正 2：確保 html, body, #root 基礎高度完全鎖定，防止 iOS 橡皮筋特效與錯位 */
+    html, body, #root { 
+      height: 100%; 
+      width: 100%; 
+      margin: 0; 
+      padding: 0;
+      overflow: hidden; 
+      background-color: #020617; 
+      touch-action: none; 
+      user-select: none; 
+      -webkit-user-select: none; 
     }
     
-    @keyframes preciseVanish {
-      0% { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0px); }
-      100% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); filter: blur(8px); }
+    @keyframes cardReveal {
+      0% { opacity: 0; transform: scale(0.8) translateY(20px) rotateX(-20deg); }
+      100% { opacity: 1; transform: scale(1) translateY(0) rotateX(0deg); }
+    }
+    
+    @keyframes cardVanish {
+      0% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(0.9) translateY(-10px); filter: blur(4px); }
     }
 
-    .card-style-reveal {
-      position: absolute;
-      top: 50%; left: 50%;
-      width: 85vw;
-      max-width: 340px;
-      aspect-ratio: 63/88;
-      object-fit: contain;
-      border-radius: 12px;
-      box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(255,255,255,0.1);
-      animation: preciseReveal 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-      z-index: 100;
+    .animate-card-reveal {
+      animation: cardReveal 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255,255,255,0.15);
     }
 
-    .card-style-vanish {
-      position: absolute;
-      top: 50%; left: 50%;
-      width: 85vw;
-      max-width: 340px;
-      aspect-ratio: 63/88;
-      object-fit: contain;
-      border-radius: 12px;
-      animation: preciseVanish 0.12s ease-out forwards;
-      z-index: 100;
+    .animate-card-vanish {
+      animation: cardVanish 0.1s ease-out forwards;
     }
 
-    /* 磨砂玻璃按鈕 */
-    .glass-btn {
-      padding: 16px 42px;
-      color: #ffffff;
-      font-size: 16px;
-      letter-spacing: 0.2em;
-      background: rgba(255, 255, 255, 0.06);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 9999px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-      cursor: pointer;
-      transition: transform 0.1s ease;
+    .glass-effect {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
-    .glass-btn:active { transform: scale(0.95); }
-
-    /* 提示氣泡 */
-    .toast-prompt {
-      position: absolute;
-      bottom: 12%; left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.75);
-      color: #10b981;
-      padding: 14px 28px;
-      border-radius: 9999px;
-      font-size: 14px;
-      letter-spacing: 2px;
-      text-align: center;
-      border: 1px solid rgba(16, 185, 129, 0.2);
-      box-shadow: 0 15px 35px rgba(0,0,0,0.6);
-      white-space: nowrap;
-      z-index: 50;
-    }
-
-    /* 呼吸燈效果 */
-    .pulse-glow {
-      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-    }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
   </style>
 </head>
 <body>
-
-  <canvas id="brightnessCanvas" width="64" height="64" class="strictly-hidden"></canvas>
-
   <div id="root"></div>
 
   <script type="text/babel">
@@ -146,20 +64,17 @@
       const [rotationAngle, setRotationAngle] = useState(0);
 
       const videoRef = useRef(null);
+      const canvasRef = useRef(null);
       const animFrameRef = useRef(null);
       const longPressTimer = useRef(null);
       const lastTapTime = useRef(0);
       const drawState = useRef({ isDrawing: false, startX: 0, startY: 0, currentX: 0, currentY: 0 });
 
-      // 初始化實境高畫質相機 (優化為後置鏡頭，畫質提昇至清晰水平)
       const initCamera = async () => {
         try {
+          // 修正 3：不強求硬體捕捉 64x64，改用常規低解析度，防止 iOS 拋出 OverconstrainedError 錯誤
           const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { 
-              facingMode: { ideal: "environment" }, 
-              width: { ideal: 640 }, 
-              height: { ideal: 480 } 
-            } 
+            video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } } 
           });
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
@@ -170,18 +85,18 @@
             };
           }
         } catch (err) {
-          alert("需要相機權限才能展現魔術效果。");
+          alert("相機啟動失敗，請確認是否給予相機權限。");
+          console.error(err);
         }
       };
 
-      // 亮度檢測核心 (後台偷偷執行，完全不干擾畫面)
       const startBrightnessLoop = () => {
-        const canvas = document.getElementById('brightnessCanvas');
-        if (!canvas || !videoRef.current) return;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!videoRef.current || !canvasRef.current) return;
+        const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
         
         const checkLoop = () => {
           if (window.currentPhase === 'WAIT_CAMERA' || window.currentPhase === 'REVEAL') {
+            // 這裡已經把視訊縮小成 64x64 放進 Canvas 了，所以鏡頭捕捉時不需要設成 64x64
             ctx.drawImage(videoRef.current, 0, 0, 64, 64);
             const data = ctx.getImageData(0, 0, 64, 64).data;
             let brightness = 0;
@@ -190,13 +105,12 @@
             }
             const avg = brightness / (data.length / 16);
 
-            // 蓋住相機 (環境全黑) 觸發
             if (avg < 25) {
               if (window.currentPhase === 'WAIT_CAMERA') {
                 window.triggerReveal();
               } else if (window.currentPhase === 'REVEAL') {
                 const elapsed = Date.now() - window.currentRevealTime;
-                if (elapsed > 4000) { // 展現 4 秒後只要再次遮擋立即極速消失
+                if (elapsed > 5000) {
                   window.triggerVanish();
                 }
               }
@@ -239,7 +153,7 @@
       };
 
       const getCardData = (index) => {
-        if (index === 52) return { imageUrl: './cards/joker_black.png' };
+        if (index === 52) return { value: 'JOKER', imageUrl: './cards/joker_black.png' };
         const suits = [{ name: 'club' }, { name: 'diamond' }, { name: 'heart' }, { name: 'spade' }];
         const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
         const rankNames = { 'J': 'jack', 'Q': 'queen', 'K': 'king', 'A': '1' };
@@ -251,12 +165,11 @@
 
       const handlePointerDown = (e) => {
         if (phase === 'START') return;
-        longPressTimer.current = setTimeout(() => location.reload(), 2000); // 長按兩秒重置
+        longPressTimer.current = setTimeout(() => location.reload(), 2000);
         if (phase === 'REVEAL' || phase === 'VANISH') return;
 
         const now = Date.now();
-        // 雙擊快速設定為鬼牌
-        if (phase === 'MAGICIAN' && now - lastTapTime.current < 400) {
+        if (phase === 'MAGICIAN' && now - lastTapTime.current < 500) {
           setFinalCard(getCardData(52));
           setTimeout(() => setPhase('WAIT_CAMERA'), 800);
           return;
@@ -310,71 +223,63 @@
       };
 
       return (
-        <div style={{ width: '100%', height: '100%', position: 'relative' }}
+        /* 修正 4：改用 w-full h-full 配合外部鎖定，避開 iOS 上 100vh 網址列跳動的 Bug */
+        <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden bg-slate-950"
              onPointerDown={handlePointerDown} 
              onPointerMove={handlePointerMove}
              onPointerUp={handlePointerUp}>
           
-          {/* 高解析度實境背景相機 */}
-          <video ref={videoRef} playsInline muted autoPlay className="camera-bg" />
+          <video ref={videoRef} playsInline muted autoPlay className="hidden" />
+          <canvas ref={canvasRef} className="hidden" />
 
-          {/* 階段 1: 啟動大廳層 */}
           {phase === 'START' && (
-            <div className="screen-overlay" style={{ backgroundColor: '#020617', zIndex: 60 }}>
-              <div style={{ width: '90px', height: '90px', marginBottom: '32px', border: '2px solid rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyInContent: 'center' }} className="pulse-glow">
-                <div style={{ width: '45px', height: '45px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '50%', margin: 'auto' }}></div>
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 p-6">
+              <div className="w-24 h-24 mb-8 border-2 border-white/20 rounded-full flex items-center justify-center animate-pulse">
+                <div className="w-12 h-12 bg-white/10 rounded-full"></div>
               </div>
-              <h1 style={{ color: 'rgba(255,255,255,0.6)', letterSpacing: '0.5em', fontWeight: 300, fontSize: '20px', marginBottom: '50px' }}>MAGIC SYSTEM</h1>
-              <button onClick={(e) => { e.stopPropagation(); initCamera(); }} className="glass-btn">
+              <h1 className="text-white/60 tracking-[0.5em] font-light text-xl mb-12">MAGIC SYSTEM</h1>
+              <button 
+                onClick={(e) => { e.stopPropagation(); initCamera(); }}
+                className="px-10 py-4 glass-effect text-white tracking-[0.2em] rounded-full active:scale-95 transition-transform"
+              >
                 INITIALIZE
               </button>
             </div>
           )}
 
-          {/* 鏡頭前的環境半透明暗化遮罩，增添魔術神秘感 */}
-          <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at center, rgba(30,41,59,0.2), rgba(15,23,42,0.65), rgba(0,0,0,0.85))', pointerEvents: 'none', zIndex: 2 }} />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-800 via-slate-900 to-black opacity-90"></div>
 
-          {/* 階段 2: 劃線手勢提示引導 */}
-          {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
-            <div style={{ position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.4em', fontSize: '14px', zIndex: 10 }} className="pulse-glow">
-              SWIPE TO START
-            </div>
-          )}
+          {/* 修正 5：加上 pt-(safe-area) 相關思維，這邊用 top-20 稍作下移，避免被 iPhone 動態島擋住 */}
+          <div className="absolute top-20 flex flex-col items-center pointer-events-none z-10">
+            {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
+                <div className="text-white/40 tracking-[0.4em] font-light text-sm animate-pulse">SWIPE TO START</div>
+            )}
+          </div>
 
-          {/* 置中手勢小方塊 */}
+          {/* 修正 6：極度關鍵！加上 `inset-0`。
+              這能讓這個絕對定位元件撐滿全螢幕，進而讓內部的 `flex items-center justify-center` 
+              把虛線方框完美錨定在螢幕正中央。這樣一來，畫面的正中央就會對齊 `window.innerHeight / 2`，滑動象限就能精準判斷了！ */}
           {(phase === 'MAGICIAN' || phase === 'WAIT_CAMERA') && (
-            <div className="absolute-center"
+            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none"
                  style={{ 
-                   zIndex: 10,
-                   transform: `translate(-50%, -50%) rotate(${rotationAngle}deg)`, 
+                   transform: `rotate(${rotationAngle}deg)`, 
                    transition: 'all 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
                    opacity: phase === 'WAIT_CAMERA' ? 0 : 1
                  }}>
-              <div style={{ border: '2px dashed rgba(255,255,255,0.25)', width: '120px', height: '120px', borderRadius: '8px' }}></div>
+              <div className="relative border-2 border-white/20 w-[100px] h-[100px] rounded-md border-dashed transition-all duration-[800ms]">
+              </div>
             </div>
           )}
 
-          {/* 階段 3: 等待感應狀態提示層 */}
-          {phase === 'WAIT_CAMERA' && (
-            <div className="toast-prompt pulse-glow">
-              等待魔術師的感知訊號...
-            </div>
-          )}
-
-          {/* 階段 4 & 5: 撲克牌精準渲染層 (絕對置中、防拉伸變形) */}
           {(phase === 'REVEAL' || phase === 'VANISH') && finalCard && (
-            <img 
-              src={finalCard.imageUrl} 
-              className={phase === 'REVEAL' ? 'card-style-reveal' : 'card-style-vanish'} 
-            />
+            <div className={`absolute flex items-center justify-center z-20 ${phase === 'REVEAL' ? 'animate-card-reveal' : 'animate-card-vanish'}`}>
+              <img src={finalCard.imageUrl} className="w-[90vw] max-w-[360px] aspect-[63/88] object-contain shadow-2xl rounded-xl" />
+            </div>
           )}
-
         </div>
       );
     }
-
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<MagicCardApp />);
+    ReactDOM.createRoot(document.getElementById('root')).render(<MagicCardApp />);
   </script>
 </body>
 </html>
