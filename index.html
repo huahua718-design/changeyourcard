@@ -23,16 +23,7 @@
       background-color: #000; 
     }
 
-    /* 確保 AR 的畫布與相機影片滿版且不變形 */
-    .a-canvas {
-      width: 100% !important;
-      height: 100% !important;
-      top: 0 !important;
-      left: 0 !important;
-      position: absolute !important;
-      object-fit: cover !important;
-      z-index: 1 !important;
-    }
+    /* ⚠️ 關鍵層級分配 ⚠️ */
     video {
       width: 100% !important;
       height: 100% !important;
@@ -40,7 +31,25 @@
       left: 0 !important;
       position: absolute !important;
       object-fit: cover !important;
-      z-index: 0 !important;
+      z-index: 1 !important; /* 【第 1 層】最底層：相機實景 */
+    }
+    
+    .black-mask-layer {
+      position: fixed;
+      inset: 0;
+      background-color: #000;
+      pointer-events: none;
+      z-index: 2 !important; /* 【第 2 層】中間層：負責吞噬相機畫面 */
+    }
+
+    .a-canvas {
+      width: 100% !important;
+      height: 100% !important;
+      top: 0 !important;
+      left: 0 !important;
+      position: absolute !important;
+      object-fit: cover !important;
+      z-index: 3 !important; /* 【第 3 層】AR 牌影層：高於黑幕，確保黑幕不會遮擋 3D 撲克牌 */
     }
     
     .a-dialog-allow-button { display: none !important; }
@@ -66,7 +75,6 @@
   </style>
 
   <script>
-    // A-Frame 元件：用來在識別成功時通知網頁
     AFRAME.registerComponent('target-handler', {
       init: function () {
         this.el.addEventListener('targetFound', () => {
@@ -105,7 +113,7 @@
     </a-entity>
   </a-scene>
 
-  <div id="root" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;"></div>
+  <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
@@ -126,7 +134,6 @@
       useEffect(() => { 
         window.currentPhase = phase; 
         
-        // 動態控制 A-Frame 內影像的顯示隱藏
         const arImage = document.querySelector('#arCardImage');
         if (arImage) {
           if (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY') {
@@ -137,7 +144,6 @@
         }
       }, [phase]);
 
-      // 精確時序控制
       useEffect(() => {
         window.triggerRevealSlow = () => setPhase('REVEAL_SLOW');
         window.triggerVanish = () => setPhase('VANISH');
@@ -156,7 +162,6 @@
         }
       }, [phase]);
 
-      // 亮度感應常駐 Loop
       useEffect(() => {
         const checkLoop = () => {
           if (window.currentPhase === 'DETECTION_ACTIVE') {
@@ -201,11 +206,8 @@
         const cardData = getCardData(finalIndex);
         setFinalCard(cardData);
 
-        // 🔥 同步更新 A-Frame 內部的圖片路徑
         const arImage = document.querySelector('#arCardImage');
-        if (arImage) {
-          arImage.setAttribute('src', cardData.imageUrl);
-        }
+        if (arImage) arImage.setAttribute('src', cardData.imageUrl);
       };
 
       const getCardData = (index) => {
@@ -279,56 +281,60 @@
       };
 
       return (
-        <div className="w-full h-full relative"
-             onPointerDown={handlePointerDown} 
-             onPointerMove={handlePointerMove}
-             onPointerUp={handlePointerUp}>
-          
-          <canvas ref={canvasRef} className="absolute w-px h-px opacity-0 pointer-events-none" />
-
-          {/* 漸顯黑幕遮罩 (位於 AR 畫布之上，UI 之下) */}
-          <div className={`absolute inset-0 bg-black pointer-events-none transition-opacity ${
+        <>
+          {/* 【第 2 層】獨立出來的漸顯黑幕層：夾在相機(1)與3D畫布(3)正中間 */}
+          <div className={`black-mask-layer transition-opacity ${
             (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY' || phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE') 
-              ? 'opacity-100 z-10 duration-[3000ms]' 
-              : 'opacity-0 z-0 duration-500'
+              ? 'opacity-100 duration-[3000ms]' 
+              : 'opacity-0 duration-500'
           }`} />
 
-          {/* UI 引導文字層 */}
-          <div className="absolute top-20 left-0 right-0 flex flex-col items-center pointer-events-none z-30 drop-shadow-md">
-            {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
-                <div className="text-white/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe to start</div>
-            )}
-            {phase === 'MAGICIAN' && magicianStrokes.length === 1 && (
-                <div className="text-cyan-400/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe 2nd</div>
-            )}
-            {phase === 'WAIT_TARGET' && (
-                <div className="text-cyan-400 tracking-[0.3em] font-mono text-sm animate-pulse">Searching...</div>
-            )}
-          </div>
+          {/* 【第 4 層】最上層 UI：負責文字、手勢偵測、以及最後的全螢幕卡牌動畫 */}
+          <div className="fixed inset-0 w-full h-full overflow-hidden bg-transparent pointer-events-auto"
+               style={{ zIndex: 4 }}
+               onPointerDown={handlePointerDown} 
+               onPointerMove={handlePointerMove}
+               onPointerUp={handlePointerUp}>
+            
+            <canvas ref={canvasRef} className="absolute w-px h-px opacity-0 pointer-events-none" />
 
-          {/* 魔術師手勢引導方框 */}
-          {(phase === 'MAGICIAN' || phase === 'WAIT_TARGET') && (
-            <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
-                 style={{ 
-                   transform: `rotate(${rotationAngle}deg)`, 
-                   transition: 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                   opacity: phase === 'WAIT_TARGET' ? 0 : 1
-                 }}>
-              <div className="relative border-2 border-white/40 w-[110px] h-[110px] rounded-lg border-dashed shadow-[0_0_15px_rgba(255,255,255,0.2)]"></div>
+            {/* UI 引導文字 */}
+            <div className="absolute top-20 left-0 right-0 flex flex-col items-center pointer-events-none drop-shadow-md">
+              {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
+                  <div className="text-white/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe to start</div>
+              )}
+              {phase === 'MAGICIAN' && magicianStrokes.length === 1 && (
+                  <div className="text-cyan-400/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe 2nd</div>
+              )}
+              {phase === 'WAIT_TARGET' && (
+                  <div className="text-cyan-400 tracking-[0.3em] font-mono text-sm animate-pulse">Searching...</div>
+              )}
             </div>
-          )}
 
-          {/* HTML 放大與消失層 (z-40 高於黑幕) */}
-          {(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') && finalCard && (
-            <img 
-              src={finalCard.imageUrl} 
-              className={`absolute top-1/2 left-1/2 z-40 w-[90vw] max-w-[380px] aspect-[63/88] object-contain shadow-2xl rounded-2xl
-                ${(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE') ? 'animate-screen-zoom' : 'animate-fast-vanish'}
-              `}
-            />
-          )}
+            {/* 魔術師手勢方框 */}
+            {(phase === 'MAGICIAN' || phase === 'WAIT_TARGET') && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                   style={{ 
+                     transform: `rotate(${rotationAngle}deg)`, 
+                     transition: 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                     opacity: phase === 'WAIT_TARGET' ? 0 : 1
+                   }}>
+                <div className="relative border-2 border-white/40 w-[110px] h-[110px] rounded-lg border-dashed shadow-[0_0_15px_rgba(255,255,255,0.2)]"></div>
+              </div>
+            )}
 
-        </div>
+            {/* HTML 放大與消失層 */}
+            {(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') && finalCard && (
+              <img 
+                src={finalCard.imageUrl} 
+                className={`absolute top-1/2 left-1/2 w-[90vw] max-w-[380px] aspect-[63/88] object-contain shadow-2xl rounded-2xl
+                  ${(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE') ? 'animate-screen-zoom' : 'animate-fast-vanish'}
+                `}
+              />
+            )}
+
+          </div>
+        </>
       );
     }
     ReactDOM.createRoot(document.getElementById('root')).render(<MagicCardApp />);
