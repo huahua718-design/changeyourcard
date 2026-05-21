@@ -103,36 +103,32 @@
       const lastTapTime = useRef(0);
       const drawState = useRef({ isDrawing: false, startX: 0, startY: 0, currentX: 0, currentY: 0 });
 
-      // 同步全局變數供 A-Frame 與 requestAnimationFrame 使用
       useEffect(() => { window.currentPhase = phase; }, [phase]);
 
-      // 精確時序控制：處理各階段的時間跳轉
+      // 精確時序控制
       useEffect(() => {
         window.triggerRevealSlow = () => setPhase('REVEAL_SLOW');
         window.triggerVanish = () => setPhase('VANISH');
 
         if (phase === 'REVEAL_SLOW') {
-          // 5秒漸顯完畢 -> 進入停留
           const t = setTimeout(() => setPhase('REVEAL_STAY'), 5000);
           return () => clearTimeout(t);
         }
         if (phase === 'REVEAL_STAY') {
-          // 停留 3 秒 -> 進入全螢幕放大
           const t = setTimeout(() => setPhase('REVEAL_ZOOM'), 3000);
           return () => clearTimeout(t);
         }
         if (phase === 'REVEAL_ZOOM') {
-          // 動畫放大並停留 3 秒後 -> 啟動亮度感應
           const t = setTimeout(() => setPhase('DETECTION_ACTIVE'), 3000);
           return () => clearTimeout(t);
         }
       }, [phase]);
 
-      // 亮度感應常駐 Loop (由相機影片串流抓取)
+      // 亮度感應常駐 Loop
       useEffect(() => {
         const checkLoop = () => {
           if (window.currentPhase === 'DETECTION_ACTIVE') {
-            const video = document.querySelector('video'); // 抓取 MindAR 產生的 video
+            const video = document.querySelector('video'); 
             if (video && canvasRef.current) {
               const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
               ctx.drawImage(video, 0, 0, 64, 64);
@@ -234,6 +230,7 @@
           if (stroke) {
             const newStrokes = [...magicianStrokes, stroke];
             setMagicianStrokes(newStrokes);
+            // 每次劃線都依據方向旋轉 90 度
             setRotationAngle(prev => prev + (stroke.dir * 90));
 
             // 當畫完第二筆時，進入等待觀眾掃描實體卡背
@@ -269,12 +266,22 @@
             </div>
           )}
 
-          {/* 2. 黑幕遮罩：畫完第一筆瞬間移除黑幕，露出背景的相機串流 */}
+          {/* 2. 黑幕遮罩：只有在 START 與 MAGICIAN (畫第一第二筆的期間) 才會蓋住畫面。畫完第二筆進入 WAIT_TARGET 才會變透明 */}
           <div className={`absolute inset-0 bg-slate-950 z-20 transition-opacity duration-500 pointer-events-none ${
-            phase !== 'START' && magicianStrokes.length >= 1 ? 'opacity-0' : 'opacity-100'
+            (phase === 'START' || phase === 'MAGICIAN') ? 'opacity-100' : 'opacity-0'
           }`} />
 
-          {/* 魔術師手勢引導方框 */}
+          {/* 魔術師手勢引導文字：放在 z-30 確保高於黑幕 */}
+          <div className="absolute top-20 left-0 right-0 flex flex-col items-center pointer-events-none z-30">
+            {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
+                <div className="text-white/40 tracking-[0.4em] font-light text-sm animate-pulse">SWIPE TO START</div>
+            )}
+            {phase === 'MAGICIAN' && magicianStrokes.length === 1 && (
+                <div className="text-cyan-400/60 tracking-[0.4em] font-light text-sm animate-pulse">SWIPE 2ND</div>
+            )}
+          </div>
+
+          {/* 魔術師手勢引導方框：放在 z-30 確保高於黑幕，且會隨著第一筆順時/逆時針旋轉 */}
           {(phase === 'MAGICIAN' || phase === 'WAIT_TARGET') && (
             <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
                  style={{ 
