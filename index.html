@@ -14,29 +14,37 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js" crossorigin="anonymous"></script>
 
   <style>
-    html { background-color: #000; }
-    body, #root { 
+    html, body { 
       height: 100%; 
       width: 100%; 
       margin: 0; 
       padding: 0;
       overflow: hidden; 
-      background-color: transparent; 
-      touch-action: none; 
-      user-select: none; 
-      -webkit-user-select: none; 
+      background-color: #000; 
+    }
+
+    /* 確保 AR 的畫布與相機影片滿版且不變形 */
+    .a-canvas {
+      width: 100% !important;
+      height: 100% !important;
+      top: 0 !important;
+      left: 0 !important;
+      position: absolute !important;
+      object-fit: cover !important;
+      z-index: 1 !important;
+    }
+    video {
+      width: 100% !important;
+      height: 100% !important;
+      top: 0 !important;
+      left: 0 !important;
+      position: absolute !important;
+      object-fit: cover !important;
+      z-index: 0 !important;
     }
     
     .a-dialog-allow-button { display: none !important; }
     .mindar-ui-overlay { display: none !important; }
-    
-    /* 修正：不強制對 .a-canvas 設定寬高，交由 A-Frame/MindAR 內部依相機比例縮放，避免變形 */
-    video {
-      width: 100% !important; height: 100% !important;
-      top: 0 !important; left: 0 !important; position: absolute !important;
-      object-fit: cover !important;
-      z-index: -2 !important;
-    }
 
     /* 從 AR 空間切換到全螢幕的 HTML 放大動畫 */
     @keyframes screenZoom {
@@ -58,6 +66,7 @@
   </style>
 
   <script>
+    // A-Frame 元件：用來在識別成功時通知網頁
     AFRAME.registerComponent('target-handler', {
       init: function () {
         this.el.addEventListener('targetFound', () => {
@@ -72,7 +81,31 @@
   </script>
 </head>
 <body>
-  <div id="root"></div>
+
+  <a-scene 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
+    color-space="sRGB" 
+    renderer="colorManagement: true, physicallyCorrectLights" 
+    vr-mode-ui="enabled: false" 
+    device-orientation-permission-ui="enabled: false"
+  >
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    
+    <a-entity mindar-image-target="targetIndex: 0" target-handler>
+      <a-image 
+        id="arCardImage"
+        src="" 
+        position="0 0 0" 
+        height="1.4" 
+        width="1"
+        material="opacity: 0; transparent: true;"
+        animation__reveal="property: material.opacity; from: 0; to: 1; dur: 5000; easing: easeInOutQuad; startEvents: startReveal;"
+        visible="false"
+      ></a-image>
+    </a-entity>
+  </a-scene>
+
+  <div id="root" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;"></div>
 
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
@@ -90,8 +123,21 @@
       const lastTapTime = useRef(0);
       const drawState = useRef({ isDrawing: false, startX: 0, startY: 0, currentX: 0, currentY: 0 });
 
-      useEffect(() => { window.currentPhase = phase; }, [phase]);
+      useEffect(() => { 
+        window.currentPhase = phase; 
+        
+        // 動態控制 A-Frame 內影像的顯示隱藏
+        const arImage = document.querySelector('#arCardImage');
+        if (arImage) {
+          if (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY') {
+            arImage.setAttribute('visible', 'true');
+          } else {
+            arImage.setAttribute('visible', 'false');
+          }
+        }
+      }, [phase]);
 
+      // 精確時序控制
       useEffect(() => {
         window.triggerRevealSlow = () => setPhase('REVEAL_SLOW');
         window.triggerVanish = () => setPhase('VANISH');
@@ -110,6 +156,7 @@
         }
       }, [phase]);
 
+      // 亮度感應常駐 Loop
       useEffect(() => {
         const checkLoop = () => {
           if (window.currentPhase === 'DETECTION_ACTIVE') {
@@ -153,7 +200,12 @@
         
         const cardData = getCardData(finalIndex);
         setFinalCard(cardData);
-        const pre = new Image(); pre.src = cardData.imageUrl;
+
+        // 🔥 同步更新 A-Frame 內部的圖片路徑
+        const arImage = document.querySelector('#arCardImage');
+        if (arImage) {
+          arImage.setAttribute('src', cardData.imageUrl);
+        }
       };
 
       const getCardData = (index) => {
@@ -173,7 +225,10 @@
 
         const now = Date.now();
         if (now - lastTapTime.current < 500) {
-          setFinalCard(getCardData(52));
+          const joker = getCardData(52);
+          setFinalCard(joker);
+          const arImage = document.querySelector('#arCardImage');
+          if (arImage) arImage.setAttribute('src', joker.imageUrl);
           setPhase('WAIT_TARGET');
           return;
         }
@@ -224,45 +279,18 @@
       };
 
       return (
-        /* 修正：移除了外部容器的 flex 居中設定，改為純粹的滿版區塊，避免擠壓 A-Frame */
-        <div className="fixed inset-0 w-full h-full overflow-hidden bg-transparent pointer-events-auto z-50"
+        <div className="w-full h-full relative"
              onPointerDown={handlePointerDown} 
              onPointerMove={handlePointerMove}
              onPointerUp={handlePointerUp}>
           
           <canvas ref={canvasRef} className="absolute w-px h-px opacity-0 pointer-events-none" />
 
-          {/* 核心追蹤：強制讓 a-scene 以絕對定位鋪滿，確保 WebGL 投影矩陣計算正確 */}
-          <a-scene 
-            className="absolute inset-0 w-full h-full"
-            mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
-            color-space="sRGB" 
-            renderer="colorManagement: true, physicallyCorrectLights" 
-            vr-mode-ui="enabled: false" 
-            device-orientation-permission-ui="enabled: false"
-          >
-            <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-            
-            <a-entity mindar-image-target="targetIndex: 0" target-handler>
-              {/* 這裡的高寬比固定為 1.4 : 1（標準撲克牌比例） */}
-              <a-image 
-                id="arCardImage"
-                src={finalCard?.imageUrl || ''} 
-                position="0 0 0" 
-                height="1.4" 
-                width="1"
-                material="opacity: 0; transparent: true;"
-                animation__reveal="property: material.opacity; from: 0; to: 1; dur: 5000; easing: easeInOutQuad; startEvents: startReveal;"
-                visible={(phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY') ? 'true' : 'false'}
-              ></a-image>
-            </a-entity>
-          </a-scene>
-
-          {/* 漸顯黑幕層 */}
-          <div className={`absolute inset-0 bg-black z-20 pointer-events-none transition-opacity ${
+          {/* 漸顯黑幕遮罩 (位於 AR 畫布之上，UI 之下) */}
+          <div className={`absolute inset-0 bg-black pointer-events-none transition-opacity ${
             (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY' || phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE') 
-              ? 'opacity-100 duration-[3000ms]' 
-              : 'opacity-0 duration-500'
+              ? 'opacity-100 z-10 duration-[3000ms]' 
+              : 'opacity-0 z-0 duration-500'
           }`} />
 
           {/* UI 引導文字層 */}
@@ -290,7 +318,7 @@
             </div>
           )}
 
-          {/* HTML 放大與消失層 */}
+          {/* HTML 放大與消失層 (z-40 高於黑幕) */}
           {(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') && finalCard && (
             <img 
               src={finalCard.imageUrl} 
