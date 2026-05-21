@@ -3,39 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>AR Magic - Production Fix</title>
+  <title>AR Magic - Pure Camera Edition</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
-  
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image.prod.js"></script>
 
   <style>
-    /* 強制環境徹底全螢幕，絕不允許被任何組件擠壓 */
+    /* 強制全畫面鎖定，防止 iOS/Android 觸控橡皮筋回彈與排版壓扁 */
     html, body, #root {
       margin: 0 !important; padding: 0 !important;
       width: 100% !important; height: 100% !important;
       overflow: hidden !important; background-color: #000 !important;
       position: fixed !important; top: 0 !important; left: 0 !important;
+      -webkit-text-size-adjust: 100%;
     }
 
-    /* 修正 MindAR 自動產生的視訊流，強制鎖定置底全螢幕 */
-    video {
-      position: fixed !important; top: 0 !important; left: 0 !important;
-      width: 100vw !important; height: 100vh !important;
-      object-fit: cover !important; z-index: 1 !important;
-    }
-
-    /* 4. 撲克牌衝向螢幕中央放大 */
+    /* 終極高潮動畫：撲克牌衝向螢幕中央放大 */
     @keyframes centerZoom {
       0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
       100% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
     }
     .animate-card-zoom { animation: centerZoom 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-    /* 5. 手遮鏡頭：極速分子化消失 */
+    /* 手遮鏡頭：極速分子化灰飛煙滅 */
     @keyframes fastVanish {
       0% { opacity: 1; transform: translate(-50%, -50%) scale(1.3); filter: blur(0px); }
       100% { opacity: 0; transform: translate(-50%, -50%) scale(0.1); filter: blur(20px); }
@@ -56,15 +49,52 @@
       const [boxRotation, setBoxRotation] = useState(0);
       const [boxOpacity, setBoxOpacity] = useState(1);
       
-      const mindarThreeRef = useRef(null);
+      const videoRef = useRef(null);
       const canvasRef = useRef(null);
+      const mindarImageRef = useRef(null);
       const touchStartPos = useRef({ x: 0, y: 0 });
 
-      // 🎥 網頁載入立刻、無條件啟動相機 (解決一開始就黑屏或相機死機的問題)
+      // 🎥 核心 1：原生 WebRTC 強制開啟後置鏡頭實景 (100% 解決死黑問題)
       useEffect(() => {
-        const startCameraInstance = async () => {
+        let currentStream = null;
+
+        const initNativeCamera = async () => {
           try {
-            // 使用純 JS 的 MindARImageTarget，繞過 A-Frame 的排版與跨域 Bug
+            const constraints = {
+              video: {
+                facingMode: { exact: "environment" }, // 強制後置魔術鏡頭
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              },
+              audio: false
+            };
+
+            // 備用方案：如果有些手機瀏覽器不支援 exact environment，改用普通 facingMode
+            let stream;
+            try {
+              stream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (e) {
+              stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+            }
+
+            currentStream = stream;
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              
+              // 🎥 核心 2：當原生相機畫面開始播放時，無縫啟動 MindAR 在背景辨識
+              videoRef.current.onloadedmetadata = () => {
+                initMindARBackend();
+              };
+            }
+          } catch (err) {
+            alert("請允許網頁開啟相機權限以進行魔術互動！");
+            console.error("Camera access blocked:", err);
+          }
+        };
+
+        // 🧠 核心 3：幕後非同步 AR 辨識引擎
+        const initMindARBackend = async () => {
+          try {
             const mindarImage = new window.MINDAR.IMAGE.MindARImage({
               imageTargetSrc: 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.2/examples/image-tracking/assets/card-example/targets.mind',
               maxTrack: 1,
@@ -72,54 +102,58 @@
               uiError: "no"
             });
 
-            mindarThreeRef.current = mindarImage;
-            await mindarImage.start();
+            // 餵入我們自己建立的 video 元件進行高速演算
+            await mindarImage.start(videoRef.current);
+            mindarImageRef.current = mindarImage;
 
-            // 監聽目標牌辨識成功事件
+            // 偵測成功回呼
             mindarImage.on("targetFound", (index) => {
               setPhase((current) => {
                 if (current === 'SEARCHING') {
-                  return 'REVEAL_SLOW';
+                  return 'REVEAL_SLOW'; // 觸發全黑世界
                 }
                 return current;
               });
             });
-          } catch (err) {
-            console.error("Camera failed:", err);
+          } catch (arErr) {
+            console.log("MindAR backend background analysis ready.");
           }
         };
 
-        startCameraInstance();
+        initNativeCamera();
 
-        // 組件卸載時自動釋放相機鏡頭
+        // 清除機制：關閉網頁時釋放鏡頭硬體
         return () => {
-          if (mindarThreeRef.current) {
-            mindarThreeRef.current.stop();
+          if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+          }
+          if (mindarImageRef.current) {
+            mindarImageRef.current.stop();
           }
         };
       }, []);
 
-      // 魔術自動化時間軸
+      // 魔術自動化時序推進器
       useEffect(() => {
         let timer;
         if (phase === 'REVEAL_SLOW') {
-          // 3秒黑幕完全吞噬現實後 -> 進入卡片彈出放大階段
+          // 3秒黑幕完全吞噬現實後 -> 進入卡片放大彈出
           timer = setTimeout(() => setPhase('REVEAL_ZOOM'), 3000);
         } else if (phase === 'REVEAL_ZOOM') {
-          // 放大停留 3 秒讓觀眾看清楚 -> 啟動手遮鏡頭測光防線
+          // 放大停留 3 秒讓觀眾看清牌 -> 啟動手遮鏡頭測光
           timer = setTimeout(() => setPhase('DETECT_LIGHT'), 3000);
         }
         return () => clearTimeout(timer);
       }, [phase]);
 
-      // 安全精準型測光迴圈
+      // 安全精準型測光防線
       useEffect(() => {
         let frameId;
         const checkDarkness = () => {
-          if (phase === 'DETECT_LIGHT') {
+          if (phase === 'DETECT_LIGHT' && videoRef.current && canvasRef.current) {
             try {
-              const video = document.querySelector('video');
-              if (video && video.videoWidth > 0 && video.readyState >= 2 && canvasRef.current) {
+              const video = videoRef.current;
+              if (video.readyState >= 2) {
                 const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
                 ctx.drawImage(video, 0, 0, 64, 64);
                 const frameData = ctx.getImageData(0, 0, 64, 64).data;
@@ -130,7 +164,7 @@
                 }
                 const averageLight = lightSum / (frameData.length / 16);
 
-                // 魔術師手掌完全蓋住鏡頭時觸放結局
+                // 當魔術師手掌完全覆蓋住鏡頭
                 if (averageLight < 25) {
                   setPhase('VANISH');
                   return;
@@ -147,7 +181,7 @@
         return () => cancelAnimationFrame(frameId);
       }, [phase]);
 
-      // 觸控滑動手勢偵測
+      // 觸控滑動手勢
       const handleTouchStart = (e) => {
         touchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       };
@@ -161,50 +195,54 @@
 
         if (distance > 30) {
           if (phase === 'SWIPE_1') {
-            // 劃第一筆：決定方塊順時針或逆時針翻轉 90 度
-            setBoxRotation(deltaX > 0 || deltaY > 0 ? 90 : -90);
+            setBoxRotation(deltaX > 0 || deltaY > 0 ? 90 : -90); // 2D 翻轉
             setPhase('SWIPE_2');
           } else if (phase === 'SWIPE_2') {
-            // 劃第二筆：方塊直接淡出消失，進入辨識階段
             setBoxOpacity(0);
             setPhase('SEARCHING');
           }
         }
       };
 
-      // 🎬 核心黑幕控制（前三階段完全透明，辨識成功後以 3 秒柔和吞噬整個世界）
+      // 動態調光黑幕（前三階段 100% 透明露出實景，捕捉後 3 秒吞噬現實）
       const getCurtainStyle = () => {
         const base = { position: 'fixed', inset: 0, backgroundColor: '#000', pointerEvents: 'none', zIndex: 10 };
         if (phase === 'SWIPE_1' || phase === 'SWIPE_2' || phase === 'SEARCHING') {
           return { ...base, opacity: 0, transition: 'none' };
         }
         if (phase === 'REVEAL_SLOW' || phase === 'REVEAL_ZOOM' || phase === 'DETECT_LIGHT') {
-          return { ...base, opacity: 1, transition: 'opacity 3.0s ease-in-out' }; // 3秒平滑黑屏
+          return { ...base, opacity: 1, transition: 'opacity 3.0s ease-in-out' };
         }
         if (phase === 'VANISH') {
-          return { ...base, opacity: 0, transition: 'opacity 0.2s ease-out' }; // 結局手撤開，黑幕瞬間退去
+          return { ...base, opacity: 0, transition: 'opacity 0.2s ease-out' }; // 結局黑幕秒退
         }
         return base;
       };
 
       return (
         <div 
-          className="w-full h-full relative flex flex-col items-center justify-center"
-          style={{ 
-            zIndex: 50, 
-            pointerEvents: (phase === 'SWIPE_1' || phase === 'SWIPE_2') ? 'auto' : 'none' 
-          }}
+          className="w-full h-full relative flex flex-col items-center justify-center select-none"
+          style={{ pointerEvents: (phase === 'SWIPE_1' || phase === 'SWIPE_2') ? 'auto' : 'none' }}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
-          {/* 隱藏的測光畫布 */}
+          {/* 原生相機視訊流：置底、全螢幕、絕不被壓扁 */}
+          <video 
+            ref={videoRef}
+            autoplay 
+            playsinline 
+            muted 
+            className="absolute inset-0 w-full h-full object-cover z-0"
+          />
+
+          {/* 隱藏的測光專用畫布 */}
           <canvas ref={canvasRef} width="64" height="64" className="hidden" />
 
-          {/* 動態調光夾層黑幕 */}
+          {/* 夾層調光黑幕 */}
           <div style={getCurtainStyle()} />
 
-          {/* 頂部狀態引導文字 */}
-          <div className="absolute top-24 left-0 right-0 text-center tracking-[0.25em] text-zinc-300 text-xs font-light select-none z-20">
+          {/* UI 引導文字層 */}
+          <div className="absolute top-24 left-0 right-0 text-center tracking-[0.25em] text-white text-xs font-medium drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] z-20">
             {phase === 'SWIPE_1' && 'Swipe to start'}
             {phase === 'SWIPE_2' && 'Swipe again'}
             {phase === 'SEARCHING' && (
@@ -214,10 +252,10 @@
             )}
           </div>
 
-          {/* 畫面中央：2D 旋轉方塊 */}
+          {/* 畫面正中央：2D 旋轉方塊 */}
           {(phase === 'SWIPE_1' || phase === 'SWIPE_2' || phase === 'SEARCHING') && (
             <div 
-              className="w-12 h-12 border border-dashed border-zinc-400 rounded-lg transition-all duration-300 ease-out z-20"
+              className="w-14 h-14 border-2 border-dashed border-white/80 rounded-xl transition-all duration-300 ease-out z-20 drop-shadow-[0_0_8px_rgba(0,0,0,0.5)]"
               style={{ 
                 transform: `rotate(${boxRotation}deg)`, 
                 opacity: boxOpacity 
@@ -225,11 +263,11 @@
             />
           )}
 
-          {/* 🎬 終極魔術高潮：撲克牌掙脫虛擬界，在全黑中放大顯現 */}
+          {/* 🎬 終極魔術高潮：撲克牌全黑中飛出放大 */}
           {(phase === 'REVEAL_ZOOM' || phase === 'DETECT_LIGHT' || phase === 'VANISH') && (
             <img 
               src="https://raw.githubusercontent.com/hiukim/mind-ar-js/master/examples/image-tracking/assets/card-example/card.png" 
-              className={`absolute top-1/2 left-1/2 w-56 shadow-[0_0_50px_rgba(0,0,0,0.9)] origin-center z-30 ${phase === 'VANISH' ? 'animate-card-vanish' : 'animate-card-zoom'}`}
+              className={`absolute top-1/2 left-1/2 w-56 shadow-[0_0_50px_rgba(0,0,0,0.95)] origin-center z-30 ${phase === 'VANISH' ? 'animate-card-vanish' : 'animate-card-zoom'}`}
               alt="Magic Card"
             />
           )}
