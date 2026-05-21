@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>AR 魔術 - 辨識與觸控修正版</title>
+  <title>AR Magic - Production Fix</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -13,53 +13,49 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
-    /* 讓最基礎的 HTML 容器完美融入，不干擾 MindAR 自動產生的 video 排版 */
+    /* 強制保證極致全螢幕，防止被任何外層框架壓扁 */
     html, body {
-      margin: 0; padding: 0; width: 100%; height: 100%;
-      overflow: hidden; background-color: #000;
-      touch-action: none; user-select: none; -webkit-user-select: none;
+      margin: 0 !important; padding: 0 !important;
+      width: 100% !important; height: 100% !important;
+      overflow: hidden !important; background-color: #000 !important;
     }
     
-    /* React 懸浮核心層：全面改用絕對定位，浮在相機上方 */
-    #root {
-      position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5;
-      pointer-events: none; /* 預設穿透，由內部組件決定誰能被點擊 */
+    /* A-frame 自動產生的視訊與畫布，強迫填滿實景 */
+    video, .a-canvas {
+      position: absolute !important; top: 0 !important; left: 0 !important;
+      width: 100% !important; height: 100% !important; object-fit: cover !important;
     }
 
-    .a-dialog-allow-button, .mindar-ui-overlay { display: none !important; }
-    
-    /* 讓 AR 疊加的虛擬卡牌畫布高於黑幕，確保黑幕變黑時，卡牌能清晰顯影 */
-    .a-canvas { z-index: 20 !important; pointer-events: none !important; }
+    /* 隱藏 MindAR 預設的 UI 提示 */
+    .mindar-ui-overlay, .a-dialog-allow-button { display: none !important; }
 
-    /* 震撼放大動畫 */
-    @keyframes screenZoom {
-      0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-      100% { transform: translate(-50%, -50%) scale(1.4); opacity: 1; }
+    /* 電影級動態放大效果 */
+    @keyframes cardZoom {
+      0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+      100% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
     }
-    .animate-screen-zoom { animation: screenZoom 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    .animate-card-zoom { animation: cardZoom 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-    /* 極速消失動畫 */
-    @keyframes fastVanish {
-      0% { opacity: 1; transform: translate(-50%, -50%) scale(1.4); filter: blur(0px); }
-      100% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); filter: blur(12px) brightness(2); }
+    /* 煙消雲散粒子感特效 */
+    @keyframes cardVanish {
+      0% { opacity: 1; transform: translate(-50%, -50%) scale(1.3); filter: blur(0px) brightness(1); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); filter: blur(15px) brightness(2); }
     }
-    .animate-fast-vanish { animation: fastVanish 0.15s ease-out forwards; }
+    .animate-card-vanish { animation: cardVanish 0.2s ease-in forwards; }
   </style>
 
   <script>
-    window.isTargetFound = false; // 全域追蹤變數
+    // 全域變數：負責跨框架（A-Frame -> React）通訊
+    window.arTargetFound = false;
 
-    AFRAME.registerComponent('target-handler', {
+    AFRAME.registerComponent('target-listener', {
       init: function () {
         this.el.addEventListener('targetFound', () => {
-          window.isTargetFound = true;
-          // 如果目前已經在搜尋階段，立刻揭曉魔術
-          if (window.currentPhase === 'SEARCHING') {
-            window.triggerReveal();
-          }
+          window.arTargetFound = true;
+          if (window.onTargetDetected) window.onTargetDetected();
         });
         this.el.addEventListener('targetLost', () => {
-          window.isTargetFound = false;
+          window.arTargetFound = false;
         });
       }
     });
@@ -67,92 +63,128 @@
 </head>
 <body>
 
+  <a-scene 
+    mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.2/examples/image-tracking/assets/card-example/targets.mind; autoStart: true; uiLoading: no; uiError: no;" 
+    color-space="sRGB" 
+    renderer="colorManagement: true, physicallyCorrectLights" 
+    vr-mode-ui="enabled: false" 
+    device-orientation-permission-ui="enabled: false"
+    embedded
+  >
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    <a-entity mindar-image-target="targetIndex: 0" target-listener>
+       <a-image 
+         id="arCardAsset"
+         src="https://raw.githubusercontent.com/hiukim/mind-ar-js/master/examples/image-tracking/assets/card-example/card.png" 
+         position="0 0 0.01" 
+         height="1" width="0.75" 
+         material="opacity: 0; transparent: true;"
+       ></a-image>
+    </a-entity>
+  </a-scene>
+
   <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    function MagicApp() {
-      // 狀態機：START -> SWIPE_1 -> SWIPE_2 -> SEARCHING -> REVEAL_SLOW -> REVEAL_STAY -> REVEAL_ZOOM -> DETECTION_ACTIVE -> VANISH
+    function MagicStage() {
+      // 核心魔術狀態機：START -> SWIPE_1 -> SWIPE_2 -> SEARCHING -> REVEAL_SLOW -> REVEAL_STAY -> REVEAL_ZOOM -> DETECT_LIGHT -> VANISH
       const [phase, setPhase] = useState('START');
       const [boxRotation, setBoxRotation] = useState(0);
       const canvasRef = useRef(null);
-      const touchStartY = useRef(0);
+      const startY = useRef(0);
 
-      // 同步狀態給 A-Frame 監聽器
-      useEffect(() => { 
-        window.currentPhase = phase; 
-        // 保險鎖：如果切換到 SEARCHING 的瞬間，圖卡早就被瞄準好了，直接啟動魔術！
-        if (phase === 'SEARCHING' && window.isTargetFound) {
-          window.triggerReveal();
-        }
-      }, [phase]);
-
+      // 當 A-Frame 監聽到圖卡時觸發的邏輯
       useEffect(() => {
-        window.triggerReveal = () => {
-          setPhase('REVEAL_SLOW');
-          // 啟動 A-Frame 內虛擬卡牌的 5 秒緩慢顯影動畫
-          const arCard = document.querySelector('#arCard');
-          if (arCard) {
-            arCard.setAttribute('animation', 'property: components.material.material.opacity; from: 0; to: 1; dur: 5000; easing: linear;');
-          }
-        };
-      }, []);
-
-      // 🎬 電影級魔術時序控制引擎
-      useEffect(() => {
-        let timer;
-        if (phase === 'REVEAL_SLOW') {
-          // 黑幕吞噬 3 秒 + 卡片完全顯影 5 秒 -> 5 秒後定格
-          timer = setTimeout(() => setPhase('REVEAL_STAY'), 5000);
-        } else if (phase === 'REVEAL_STAY') {
-          // 在純黑中優雅停留 3 秒 -> 卡片掙脫 AR 空間飛向螢幕中央
-          timer = setTimeout(() => setPhase('REVEAL_ZOOM'), 3000);
-        } else if (phase === 'REVEAL_ZOOM') {
-          // 放大動畫播完，停留 3 秒 -> 開啟後置鏡頭光感應
-          timer = setTimeout(() => setPhase('DETECTION_ACTIVE'), 3000);
-        }
-        return () => clearTimeout(timer);
-      }, [phase]);
-
-      // 👁️ 蓋鏡頭極速消失——光感應常駐系統
-      useEffect(() => {
-        let animFrame;
-        const checkBrightness = () => {
-          if (window.currentPhase === 'DETECTION_ACTIVE') {
-            const video = document.querySelector('video');
-            if (video && canvasRef.current) {
-              const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
-              ctx.drawImage(video, 0, 0, 64, 64);
-              const data = ctx.getImageData(0, 0, 64, 64).data;
-              let brightness = 0;
-              for (let i = 0; i < data.length; i += 16) {
-                brightness += (data[i] + data[i+1] + data[i+2]) / 3;
-              }
-              const avgBrightness = brightness / (data.length / 16);
-              // 鏡頭被手遮住 (亮度大幅下降) -> 極速灰飛煙滅
-              if (avgBrightness < 35) {
-                setPhase('VANISH');
-                return; 
-              }
+        window.onTargetDetected = () => {
+          // 只有在搜尋階段才會觸發顯影流程
+          setPhase((current) => {
+            if (current === 'SEARCHING') {
+              triggerSlowReveal();
+              return 'REVEAL_SLOW';
             }
-          }
-          animFrame = requestAnimationFrame(checkBrightness);
+            return current;
+          });
         };
-        checkBrightness();
-        return () => cancelAnimationFrame(animFrame);
       }, []);
 
-      // 👆 觸控滑動處理（搭配專屬攔截層）
-      const handleTouchStart = (e) => {
-        touchStartY.current = e.touches[0].clientY;
+      // 防禦鎖：如果進入 SEARCHING 階段時圖卡本來就對準了，立即補發觸發
+      useEffect(() => {
+        if (phase === 'SEARCHING' && window.arTargetFound) {
+          triggerSlowReveal();
+          setPhase('REVEAL_SLOW');
+        }
+      }, [phase]);
+
+      const triggerSlowReveal = () => {
+        const el = document.querySelector('#arCardAsset');
+        if (el) {
+          el.setAttribute('animation', 'property: components.material.material.opacity; from: 0; to: 1; dur: 4000; easing: linear;');
+        }
       };
 
-      const handleTouchEnd = (e) => {
-        const touchEndY = e.changedTouches[0].clientY;
-        const deltaY = touchStartY.current - touchEndY;
-        
-        if (deltaY > 40) { // 向上滑動超過 40px
+      // 🕒 魔術自動化時間齒輪
+      useEffect(() => {
+        let timeout;
+        if (phase === 'REVEAL_SLOW') {
+          // 4秒顯影完畢 -> 轉入定格階段
+          timeout = setTimeout(() => setPhase('REVEAL_STAY'), 4000);
+        } else if (phase === 'REVEAL_STAY') {
+          // 純黑背景定格 2.5 秒 -> 撲克牌突破 3D 空間飛向螢幕正中央
+          timeout = setTimeout(() => setPhase('REVEAL_ZOOM'), 2500);
+        } else if (phase === 'REVEAL_ZOOM') {
+          // 放大飛出動畫播完 3 秒 -> 悄悄啟動環境光感應器
+          timeout = setTimeout(() => setPhase('DETECT_LIGHT'), 3000);
+        }
+        return () => clearTimeout(timeout);
+      }, [phase]);
+
+      // 👁️ 安全防護型——光感應測光迴圈
+      useEffect(() => {
+        let frameId;
+        const inspectBrightness = () => {
+          if (phase === 'DETECT_LIGHT') {
+            try {
+              // 尋找各平台可能產生的相機 video 標籤
+              const video = document.querySelector('video');
+              if (video && canvasRef.current && video.readyState >= 2) {
+                const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(video, 0, 0, 64, 64);
+                const pixels = ctx.getImageData(0, 0, 64, 64).data;
+                
+                let brightnessSum = 0;
+                for (let i = 0; i < pixels.length; i += 16) {
+                  brightnessSum += (pixels[i] + pixels[i+1] + pixels[i+2]) / 3;
+                }
+                const average = brightnessSum / (pixels.length / 16);
+
+                // 臨界點臨界值：當手掌蓋住鏡頭使亮度大跌（低於 30）
+                if (average < 30) {
+                  setPhase('VANISH');
+                  return; // 終止測光
+                }
+              }
+            } catch (err) {
+              console.log("Waiting for video stream data safely...");
+            }
+          }
+          frameId = requestAnimationFrame(inspectBrightness);
+        };
+
+        if (phase === 'DETECT_LIGHT') {
+          frameId = requestAnimationFrame(inspectBrightness);
+        }
+        return () => cancelAnimationFrame(frameId);
+      }, [phase]);
+
+      // 👆 完美的滑動手勢捕捉器
+      const touchStart = (e) => { startY.current = e.touches[0].clientY; };
+      const touchEnd = (e) => {
+        const endY = e.changedTouches[0].clientY;
+        const diff = startY.current - endY;
+
+        if (diff > 40) { // 向上滑動超過 40 像素
           if (phase === 'SWIPE_1') {
             setBoxRotation(90);
             setPhase('SWIPE_2');
@@ -162,103 +194,78 @@
         }
       };
 
-      // 1F 動態黑幕樣式切換
-      let overlayClass = "absolute inset-0 z-10 pointer-events-none ";
+      // 🖤 依據流程精心設計的「幕後黑布」樣式切換
+      let curtainStyle = "absolute inset-0 bg-black transition-opacity pointer-events-none ";
       if (phase === 'START' || phase === 'SWIPE_1') {
-        overlayClass += "bg-black opacity-100 transition-opacity duration-0"; 
+        curtainStyle += "opacity-100 duration-0"; // 初始純黑不透光
       } else if (phase === 'SWIPE_2' || phase === 'SEARCHING') {
-        overlayClass += "bg-black opacity-0 transition-opacity duration-500"; // 第一筆劃下，0.5秒褪去，透出相機
-      } else if (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY' || phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE') {
-        overlayClass += "bg-black opacity-100 transition-opacity duration-3000"; // 偵測到，3秒黑幕緩慢吞噬實景
+        curtainStyle += "opacity-0 duration-700"; // 劃下第一筆，黑幕優雅拉開，露出清晰相機畫面
+      } else if (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY' || phase === 'REVEAL_ZOOM' || phase === 'DETECT_LIGHT') {
+        curtainStyle += "opacity-100 duration-[3000ms]"; // 一旦鎖定卡牌，現實世界在3秒內被黑暗吞噬
       } else if (phase === 'VANISH') {
-        overlayClass += "bg-black opacity-0 transition-opacity duration-200"; // 手遮開，瞬間退去
+        curtainStyle += "opacity-0 duration-300"; // 結束時黑布瞬間撤走，回歸現實
       }
 
       return (
-        <div className="w-full h-full absolute inset-0 pointer-events-none">
-          {/* 用於測光的隱藏畫布 */}
+        <div className="fixed inset-0 z-[9999] w-full h-full pointer-events-none font-sans select-none -webkit-user-select-none">
+          {/* 用於測光分析的隱藏迷你畫布 */}
           <canvas ref={canvasRef} width="64" height="64" className="hidden" />
 
-          {/* 1F 動態黑幕窗簾 */}
-          <div className={overlayClass}></div>
+          {/* 舞台大黑幕 */}
+          <div className={curtainStyle} />
 
-          {/* 🛠️ 核心修復：HTML 專屬觸控攔截層。只有在需要滑動的 Phase 才現形，杜絕 A-Frame 搶走事件 */}
+          {/* 🛠️ 手勢專用透明防護罩：僅在需要劃兩筆的階段開啟 pointer-events */}
           {(phase === 'SWIPE_1' || phase === 'SWIPE_2') && (
             <div 
-              className="absolute inset-0 z-40 bg-transparent pointer-events-auto"
-              onTouchStart={handleTouchStart}
-              onTouchEnd={handleTouchEnd}
+              className="absolute inset-0 bg-transparent pointer-events-auto"
+              onTouchStart={touchStart}
+              onTouchEnd={touchEnd}
             />
           )}
 
-          {/* 頂樓 UI 儀表板層 (z-index: 50) */}
-          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
+          {/* UI 元件層 */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
             
             {phase === 'START' && (
               <button 
-                className="pointer-events-auto px-8 py-3 border border-zinc-700 text-zinc-300 rounded-full tracking-[0.15em] text-sm bg-black/40 backdrop-blur-sm active:scale-95 transition-transform"
+                className="pointer-events-auto px-10 py-3.5 border border-zinc-700 text-zinc-200 rounded-full bg-zinc-950/70 backdrop-blur-md tracking-[0.2em] text-sm font-light active:scale-95 transition-all shadow-xl"
                 onClick={() => setPhase('SWIPE_1')}
               >
-                START SYSTEM
+                INITIALIZE
               </button>
             )}
 
             {(phase === 'SWIPE_1' || phase === 'SWIPE_2') && (
-              <div className="flex flex-col items-center text-zinc-400 tracking-[0.25em] text-xs font-light">
+              <div className="flex flex-col items-center tracking-[0.3em] text-zinc-400 text-xs font-light">
                 <div 
-                  className="w-10 h-10 border border-dashed border-zinc-500 mb-6 transition-transform duration-500 ease-out"
+                  className="w-8 h-8 border border-dashed border-zinc-500 mb-6 transition-transform duration-500 ease-out"
                   style={{ transform: `rotate(${boxRotation}deg)` }}
-                ></div>
-                {phase === 'SWIPE_1' ? 'Swipe to start' : 'Swipe again'}
+                />
+                {phase === 'SWIPE_1' ? 'Swipe Up to Start' : 'Swipe 2nd Time'}
               </div>
             )}
 
             {phase === 'SEARCHING' && (
-              <div className="text-cyan-500 tracking-[0.3em] font-light animate-pulse text-xs">
+              <div className="text-cyan-500 tracking-[0.3em] font-light animate-pulse text-xs bg-black/40 px-6 py-2 rounded-full border border-cyan-950/50 backdrop-blur-sm">
                 Searching...
               </div>
             )}
 
-            {/* 6. 卡牌掙脫 A-Frame，來到 HTML 層執行螢幕正中央放大與消失 */}
-            {(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') && (
+            {/* 撲克牌由 AR 空間飛躍至螢幕中央的終極動畫載體 */}
+            {(phase === 'REVEAL_ZOOM' || phase === 'DETECT_LIGHT' || phase === 'VANISH') && (
               <img 
                 src="https://raw.githubusercontent.com/hiukim/mind-ar-js/master/examples/image-tracking/assets/card-example/card.png" 
-                className={`absolute top-1/2 left-1/2 w-48 shadow-2xl origin-center ${phase === 'VANISH' ? 'animate-fast-vanish' : 'animate-screen-zoom'}`}
-                alt="Magic Card"
+                className={`absolute top-1/2 left-1/2 w-52 shadow-[0_0_50px_rgba(0,0,0,0.9)] origin-center ${phase === 'VANISH' ? 'animate-card-vanish' : 'animate-card-zoom'}`}
+                alt="Revealed Card"
               />
             )}
           </div>
-
-          {/* 地下室：A-Frame & MindAR 引擎層 (不對場景與 video 做強制變形) */}
-          <a-scene 
-            mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.2/examples/image-tracking/assets/card-example/targets.mind; autoStart: true;" 
-            color-space="sRGB" 
-            renderer="colorManagement: true, physicallyCorrectLights" 
-            vr-mode-ui="enabled: false" 
-            device-orientation-permission-ui="enabled: false"
-            embedded
-            style={{ width: '100%', height: '100%' }}
-          >
-            <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-            <a-entity mindar-image-target="targetIndex: 0" target-handler>
-               {/* 4. 偵測到時，從不透明度 0 慢慢由動畫顯影至 1 */}
-               {phase !== 'REVEAL_ZOOM' && phase !== 'DETECTION_ACTIVE' && phase !== 'VANISH' && (
-                 <a-image 
-                   id="arCard"
-                   src="https://raw.githubusercontent.com/hiukim/mind-ar-js/master/examples/image-tracking/assets/card-example/card.png" 
-                   position="0 0 0.05" 
-                   height="1" width="0.75" 
-                   material="opacity: 0; transparent: true;"
-                 ></a-image>
-               )}
-            </a-entity>
-          </a-scene>
         </div>
       );
     }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<MagicApp />);
+    root.render(<MagicStage />);
   </script>
 </body>
 </html>
