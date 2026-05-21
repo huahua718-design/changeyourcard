@@ -23,7 +23,7 @@
       background-color: #000; 
     }
 
-    /* ⚠️ 關鍵層級分配 ⚠️ */
+    /* 三明治層級架構 */
     video {
       width: 100% !important;
       height: 100% !important;
@@ -31,7 +31,7 @@
       left: 0 !important;
       position: absolute !important;
       object-fit: cover !important;
-      z-index: 1 !important; /* 【第 1 層】最底層：相機實景 */
+      z-index: 1 !important; /* 【第 1 層】底層：相機畫面 */
     }
     
     .black-mask-layer {
@@ -39,7 +39,7 @@
       inset: 0;
       background-color: #000;
       pointer-events: none;
-      z-index: 2 !important; /* 【第 2 層】中間層：負責吞噬相機畫面 */
+      z-index: 2 !important; /* 【第 2 層】中層：負責在放大時吞噬背景 */
     }
 
     .a-canvas {
@@ -49,7 +49,7 @@
       left: 0 !important;
       position: absolute !important;
       object-fit: cover !important;
-      z-index: 3 !important; /* 【第 3 層】AR 牌影層：高於黑幕，確保黑幕不會遮擋 3D 撲克牌 */
+      z-index: 3 !important; /* 【第 3 層】AR 牌影層 */
     }
     
     .a-dialog-allow-button { display: none !important; }
@@ -107,7 +107,8 @@
         height="1.4" 
         width="1"
         material="opacity: 0; transparent: true;"
-        animation__reveal="property: material.opacity; from: 0; to: 1; dur: 5000; easing: easeInOutQuad; startEvents: startReveal;"
+        /* 修正點 2：慢顯時間改為 2000 毫秒 (2秒) */
+        animation__reveal="property: material.opacity; from: 0; to: 1; dur: 2000; easing: easeInOutQuad; startEvents: startReveal;"
         visible="false"
       ></a-image>
     </a-entity>
@@ -144,16 +145,17 @@
         }
       }, [phase]);
 
+      /* 修正點 2：時序控制重組 (2秒顯現 + 2秒停留) */
       useEffect(() => {
         window.triggerRevealSlow = () => setPhase('REVEAL_SLOW');
         window.triggerVanish = () => setPhase('VANISH');
 
         if (phase === 'REVEAL_SLOW') {
-          const t = setTimeout(() => setPhase('REVEAL_STAY'), 5000);
+          const t = setTimeout(() => setPhase('REVEAL_STAY'), 2000); /* 緩慢顯示 2 秒 */
           return () => clearTimeout(t);
         }
         if (phase === 'REVEAL_STAY') {
-          const t = setTimeout(() => setPhase('REVEAL_ZOOM'), 3000);
+          const t = setTimeout(() => setPhase('REVEAL_ZOOM'), 2000); /* 顯示完成後等待 2 秒 */
           return () => clearTimeout(t);
         }
         if (phase === 'REVEAL_ZOOM') {
@@ -162,6 +164,7 @@
         }
       }, [phase]);
 
+      // 亮度感應常駐 Loop
       useEffect(() => {
         const checkLoop = () => {
           if (window.currentPhase === 'DETECTION_ACTIVE') {
@@ -282,14 +285,14 @@
 
       return (
         <>
-          {/* 【第 2 層】獨立出來的漸顯黑幕層：夾在相機(1)與3D畫布(3)正中間 */}
+          {/* 【第 2 層】修正點 2：黑幕遮罩修改為只在「放大與後續感應階段」變黑，顯現與等待時維持完全透明不擋相機 */}
           <div className={`black-mask-layer transition-opacity ${
-            (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY' || phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE') 
-              ? 'opacity-100 duration-[3000ms]' 
+            (phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') 
+              ? 'opacity-100 duration-700' 
               : 'opacity-0 duration-500'
           }`} />
 
-          {/* 【第 4 層】最上層 UI：負責文字、手勢偵測、以及最後的全螢幕卡牌動畫 */}
+          {/* 【第 4 層】最上層 UI */}
           <div className="fixed inset-0 w-full h-full overflow-hidden bg-transparent pointer-events-auto"
                style={{ zIndex: 4 }}
                onPointerDown={handlePointerDown} 
@@ -298,13 +301,10 @@
             
             <canvas ref={canvasRef} className="absolute w-px h-px opacity-0 pointer-events-none" />
 
-            {/* UI 引導文字 */}
+            {/* UI 引導文字（修正點 1：已完全拔除 magicianStrokes.length === 1 時的文字顯示） */}
             <div className="absolute top-20 left-0 right-0 flex flex-col items-center pointer-events-none drop-shadow-md">
               {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
                   <div className="text-white/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe to start</div>
-              )}
-              {phase === 'MAGICIAN' && magicianStrokes.length === 1 && (
-                  <div className="text-cyan-400/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe 2nd</div>
               )}
               {phase === 'WAIT_TARGET' && (
                   <div className="text-cyan-400 tracking-[0.3em] font-mono text-sm animate-pulse">Searching...</div>
@@ -323,7 +323,7 @@
               </div>
             )}
 
-            {/* HTML 放大與消失層 */}
+            {/* HTML 2D 放大與分子化消失層 */}
             {(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') && finalCard && (
               <img 
                 src={finalCard.imageUrl} 
