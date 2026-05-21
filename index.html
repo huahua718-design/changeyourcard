@@ -2,16 +2,9 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>AR 實體牌背魔術 (黑幕吞噬終極版)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AR 實體牌背魔術 - 完美時序版</title>
   
-  <script>
-    window.onerror = function(msg, url, lineNo) {
-      alert("系統提示錯誤: " + msg + "\n行號: " + lineNo);
-      return false;
-    };
-  </script>
-
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -20,68 +13,47 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
-    /* 🚀 核心修復 1：強制把 HTML 基礎層設為「透明」，才不會把 MindAR 墊在底下的相機蓋死 */
+    /* --- 空間架構核心 --- */
     html, body, #root {
-      background-color: transparent !important; 
-      margin: 0; padding: 0;
-      width: 100%; height: 100%;
-      overflow: hidden;
-      touch-action: none;
-      user-select: none;
-      -webkit-user-select: none;
+      background-color: transparent !important; /* 確保不阻擋底層相機 */
+      margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+      touch-action: none; user-select: none; -webkit-user-select: none;
     }
     
-    /* 確保手機畫面邊緣不會因為透明而露白，我們在最深處(z:-3)墊一張純黑畫布 */
-    .base-black-bg {
-      position: fixed; inset: 0; background-color: #000; z-index: -3;
-    }
-    
+    /* 隱藏 MindAR 預設 UI */
     .a-dialog-allow-button, .mindar-ui-overlay { display: none !important; }
     
-    /* 相機畫面死死鎖在 z:-2 */
-    video {
-      z-index: -2 !important;
-      object-fit: cover !important;
-      opacity: 1 !important; 
-    }
+    /* B2: 相機層 */
+    video { z-index: -2 !important; object-fit: cover !important; }
+    
+    /* 2F: AR 畫布層 (蓋在黑幕之上) */
+    .a-canvas { z-index: 20 !important; pointer-events: none !important; }
 
-    /* 🚀 核心修復 2：AR 畫布必須高於黑幕層(z:10)，這樣黑幕吞噬相機時，AR 撲克牌才不會被一起吃掉 */
-    .a-canvas {
-      z-index: 20 !important;
-      pointer-events: none !important;
-    }
-
-    /* 掙脫 AR 空間飛向螢幕正中央的 HTML 放大動畫 */
+    /* --- 動畫設定 --- */
     @keyframes screenZoom {
       0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-      5% { transform: translate(-50%, -50%) scale(0.6); opacity: 1; }
-      100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(1.5); opacity: 1; }
     }
-    .animate-screen-zoom {
-      animation: screenZoom 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    }
+    .animate-screen-zoom { animation: screenZoom 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-    /* 感光極速分子化消失 */
     @keyframes fastVanish {
-      0% { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: contrast(1) brightness(1); }
-      100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); filter: contrast(2) brightness(1.5) blur(8px); }
+      0% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); filter: blur(0px); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); filter: blur(10px) brightness(2); }
     }
-    .animate-fast-vanish {
-      animation: fastVanish 0.1s ease-out forwards;
-    }
+    .animate-fast-vanish { animation: fastVanish 0.15s ease-out forwards; }
   </style>
 
   <script>
     AFRAME.registerComponent('target-handler', {
       init: function () {
         this.el.addEventListener('targetFound', () => {
-          if (window.currentPhase === 'WAIT_TARGET') {
-            window.triggerRevealSlow();
-            // 延遲 100 毫秒確保 React 狀態更新後，再觸發 5 秒漸顯動畫
-            setTimeout(() => {
-              const arImage = document.querySelector('#arCardImage');
-              if (arImage) arImage.emit('startReveal');
-            }, 100);
+          if (window.currentPhase === 'SEARCHING') {
+            window.triggerReveal();
+            // 觸發 AR 撲克牌 5 秒漸顯
+            const arCard = document.querySelector('#arCard');
+            if (arCard) {
+              arCard.setAttribute('animation', 'property: components.material.material.opacity; from: 0; to: 1; dur: 5000; easing: linear;');
+            }
           }
         });
       }
@@ -89,54 +61,170 @@
   </script>
 </head>
 <body>
-  <div class="base-black-bg"></div>
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useRef, useEffect } = React;
-    const EDGE_TOP = 0, EDGE_RIGHT = 1, EDGE_BOTTOM = 2, EDGE_LEFT = 3;
+    const { useState, useEffect, useRef } = React;
 
-    function MagicCardApp() {
-      const [phase, setPhase] = useState('START'); 
-      const [magicianStrokes, setMagicianStrokes] = useState([]);
-      const [finalCard, setFinalCard] = useState(null);
-      const [rotationAngle, setRotationAngle] = useState(0);
-
+    function MagicApp() {
+      // 階段：START -> SWIPE_1 -> SWIPE_2 -> SEARCHING -> REVEAL_SLOW -> REVEAL_STAY -> REVEAL_ZOOM -> VANISH
+      const [phase, setPhase] = useState('START');
+      const [boxRotation, setBoxRotation] = useState(0);
       const canvasRef = useRef(null);
-      const animFrameRef = useRef(null);
-      const lastTapTime = useRef(0);
-      const drawState = useRef({ isDrawing: false, startX: 0, startY: 0, currentX: 0, currentY: 0 });
 
+      // 讓 A-Frame 可以呼叫 React 狀態
       useEffect(() => { window.currentPhase = phase; }, [phase]);
-
-      // 🎬 完美的電影級時序控制
       useEffect(() => {
-        window.triggerRevealSlow = () => setPhase('REVEAL_SLOW');
-        window.triggerVanish = () => setPhase('VANISH');
+        window.triggerReveal = () => setPhase('REVEAL_SLOW');
+      }, []);
 
+      // 🎬 時序引擎
+      useEffect(() => {
+        let timer;
         if (phase === 'REVEAL_SLOW') {
-          // 4. AR 漸顯與黑幕吞噬 (花費 5 秒) -> 進入停留階段
-          const t = setTimeout(() => setPhase('REVEAL_STAY'), 5000);
-          return () => clearTimeout(t);
+          // 4. 黑幕吞噬 (3秒) & AR顯影 (5秒) -> 5秒後進入 STAY
+          timer = setTimeout(() => setPhase('REVEAL_STAY'), 5000);
+        } else if (phase === 'REVEAL_STAY') {
+          // 5. 停留 3 秒 -> 實體化飛向螢幕
+          timer = setTimeout(() => setPhase('REVEAL_ZOOM'), 3000);
+        } else if (phase === 'REVEAL_ZOOM') {
+          // 6. 放大完成，停留 3 秒 -> 啟動光感應待命
+          timer = setTimeout(() => setPhase('DETECTION_ACTIVE'), 3000);
         }
-        if (phase === 'REVEAL_STAY') {
-          // 5. 停留 (3 秒) -> 準備震懾放大
-          const t = setTimeout(() => setPhase('REVEAL_ZOOM'), 3000);
-          return () => clearTimeout(t);
-        }
-        if (phase === 'REVEAL_ZOOM') {
-          // 6. 全螢幕放大，停留 (3 秒) -> 啟動感光待命
-          const t = setTimeout(() => setPhase('DETECTION_ACTIVE'), 3000);
-          return () => clearTimeout(t);
-        }
+        return () => clearTimeout(timer);
       }, [phase]);
 
-      // 👁️ 亮度感應常駐系統 (背地運作不受黑幕干擾)
+      // 👁️ 亮度感應常駐系統
       useEffect(() => {
-        const checkLoop = () => {
+        let animFrame;
+        const checkBrightness = () => {
           if (window.currentPhase === 'DETECTION_ACTIVE') {
-            const video = document.querySelector('video'); 
+            const video = document.querySelector('video');
             if (video && canvasRef.current) {
               const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
               ctx.drawImage(video, 0, 0, 64, 64);
-              const data = ctx.getImageData(0, 0, 64,
+              const data = ctx.getImageData(0, 0, 64, 64).data;
+              let brightness = 0;
+              for (let i = 0; i < data.length; i += 16) {
+                brightness += (data[i] + data[i+1] + data[i+2]) / 3;
+              }
+              const avgBrightness = brightness / (data.length / 16);
+              // 7. 手遮住鏡頭 (亮度低於 40) -> 極速消失！
+              if (avgBrightness < 40) {
+                setPhase('VANISH');
+                return; // 終止偵測
+              }
+            }
+          }
+          animFrame = requestAnimationFrame(checkBrightness);
+        };
+        checkBrightness();
+        return () => cancelAnimationFrame(animFrame);
+      }, []);
+
+      // 觸控滑動邏輯
+      const handleTouchStart = (e) => {
+        window.startY = e.touches[0].clientY;
+      };
+      const handleTouchEnd = (e) => {
+        const endY = e.changedTouches[0].clientY;
+        if (window.startY - endY > 30) { // 向上滑
+          if (phase === 'SWIPE_1') {
+            setBoxRotation(90);
+            setPhase('SWIPE_2');
+          } else if (phase === 'SWIPE_2') {
+            setPhase('SEARCHING');
+          }
+        }
+      };
+
+      // 根據 Phase 決定 1F 黑幕的狀態 (透明度與過渡時間)
+      let overlayClass = "fixed inset-0 z-10 pointer-events-none ";
+      if (phase === 'START' || phase === 'SWIPE_1') {
+        overlayClass += "bg-black opacity-100 transition-opacity duration-0"; // 初始全黑
+      } else if (phase === 'SWIPE_2' || phase === 'SEARCHING') {
+        overlayClass += "bg-black opacity-0 transition-opacity duration-500"; // 0.5秒褪去，透出相機
+      } else if (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY' || phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE') {
+        overlayClass += "bg-black opacity-100 transition-opacity duration-3000"; // 3秒緩慢吞噬
+      } else if (phase === 'VANISH') {
+        overlayClass += "bg-black opacity-0 transition-opacity duration-200"; // 瞬間退去回到相機
+      }
+
+      return (
+        <div className="w-full h-full relative" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          
+          {/* 隱藏的 Canvas 用於測光 */}
+          <canvas ref={canvasRef} width="64" height="64" className="hidden" />
+
+          {/* 1F 動態黑幕層 */}
+          <div className={overlayClass}></div>
+
+          {/* 頂樓 UI 層 (z-index 50) */}
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
+            {phase === 'START' && (
+              <button 
+                className="pointer-events-auto px-6 py-3 border border-gray-600 text-gray-300 rounded-full tracking-widest text-sm active:bg-gray-800"
+                onClick={() => setPhase('SWIPE_1')}
+              >
+                START SYSTEM
+              </button>
+            )}
+
+            {(phase === 'SWIPE_1' || phase === 'SWIPE_2') && (
+              <div className="flex flex-col items-center text-gray-400 tracking-[0.2em] text-sm">
+                <div 
+                  className="w-12 h-12 border border-dashed border-gray-500 mb-6 transition-transform duration-500 ease-out"
+                  style={{ transform: `rotate(${boxRotation}deg)` }}
+                ></div>
+                {phase === 'SWIPE_1' ? 'Swipe to start' : 'Swipe again'}
+              </div>
+            )}
+
+            {phase === 'SEARCHING' && (
+              <div className="text-cyan-600 tracking-[0.3em] animate-pulse text-sm">
+                Searching...
+              </div>
+            )}
+
+            {/* 6. 掙脫 AR 空間，飛向中央的高清 HTML 卡牌 */}
+            {(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') && (
+              <img 
+                src="https://raw.githubusercontent.com/hiukim/mind-ar-js/master/examples/image-tracking/assets/card-example/card.png" 
+                className={`absolute top-1/2 left-1/2 w-48 shadow-2xl ${phase === 'VANISH' ? 'animate-fast-vanish' : 'animate-screen-zoom'}`}
+                alt="Target Card"
+              />
+            )}
+          </div>
+
+          {/* 底層 MindAR 系統 */}
+          <a-scene 
+            mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.2/examples/image-tracking/assets/card-example/targets.mind; autoStart: true;" 
+            color-space="sRGB" 
+            renderer="colorManagement: true, physicallyCorrectLights" 
+            vr-mode-ui="enabled: false" 
+            device-orientation-permission-ui="enabled: false"
+          >
+            <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+            <a-entity mindar-image-target="targetIndex: 0" target-handler>
+               {/* 4. 偵測到時，從透明度 0 慢慢顯影 (由 JS 控制) */}
+               {/* 注意：當 phase 進入 REVEAL_ZOOM 後，我們將 AR 卡牌隱藏，交接給 HTML 放大卡牌 */}
+               {phase !== 'REVEAL_ZOOM' && phase !== 'DETECTION_ACTIVE' && phase !== 'VANISH' && (
+                 <a-image 
+                   id="arCard"
+                   src="https://raw.githubusercontent.com/hiukim/mind-ar-js/master/examples/image-tracking/assets/card-example/card.png" 
+                   position="0 0 0.1" 
+                   height="1" width="0.75" 
+                   material="opacity: 0; transparent: true;"
+                 ></a-image>
+               )}
+            </a-entity>
+          </a-scene>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<MagicApp />);
+  </script>
+</body>
+</html>
