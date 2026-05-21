@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>AR 實體牌背魔術 (相機直出版)</title>
+  <title>AR 實體牌背魔術 (黑幕吞噬終極版)</title>
   
   <script>
     window.onerror = function(msg, url, lineNo) {
@@ -20,8 +20,9 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
-    html, body {
-      background-color: #000; 
+    /* 🚀 核心修復 1：強制把 HTML 基礎層設為「透明」，才不會把 MindAR 墊在底下的相機蓋死 */
+    html, body, #root {
+      background-color: transparent !important; 
       margin: 0; padding: 0;
       width: 100%; height: 100%;
       overflow: hidden;
@@ -30,33 +31,37 @@
       -webkit-user-select: none;
     }
     
-    #root {
-      width: 100%; height: 100%;
-      background: transparent !important; 
+    /* 確保手機畫面邊緣不會因為透明而露白，我們在最深處(z:-3)墊一張純黑畫布 */
+    .base-black-bg {
+      position: fixed; inset: 0; background-color: #000; z-index: -3;
     }
     
     .a-dialog-allow-button, .mindar-ui-overlay { display: none !important; }
     
+    /* 相機畫面死死鎖在 z:-2 */
     video {
       z-index: -2 !important;
       object-fit: cover !important;
       opacity: 1 !important; 
     }
 
+    /* 🚀 核心修復 2：AR 畫布必須高於黑幕層(z:10)，這樣黑幕吞噬相機時，AR 撲克牌才不會被一起吃掉 */
     .a-canvas {
       z-index: 20 !important;
       pointer-events: none !important;
     }
 
+    /* 掙脫 AR 空間飛向螢幕正中央的 HTML 放大動畫 */
     @keyframes screenZoom {
       0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-      10% { transform: translate(-50%, -50%) scale(0.6); opacity: 1; }
+      5% { transform: translate(-50%, -50%) scale(0.6); opacity: 1; }
       100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
     }
     .animate-screen-zoom {
       animation: screenZoom 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
+    /* 感光極速分子化消失 */
     @keyframes fastVanish {
       0% { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: contrast(1) brightness(1); }
       100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); filter: contrast(2) brightness(1.5) blur(8px); }
@@ -72,8 +77,11 @@
         this.el.addEventListener('targetFound', () => {
           if (window.currentPhase === 'WAIT_TARGET') {
             window.triggerRevealSlow();
-            const arImage = document.querySelector('#arCardImage');
-            if (arImage) arImage.emit('startReveal');
+            // 延遲 100 毫秒確保 React 狀態更新後，再觸發 5 秒漸顯動畫
+            setTimeout(() => {
+              const arImage = document.querySelector('#arCardImage');
+              if (arImage) arImage.emit('startReveal');
+            }, 100);
           }
         });
       }
@@ -81,6 +89,7 @@
   </script>
 </head>
 <body>
+  <div class="base-black-bg"></div>
   <div id="root"></div>
 
   <script type="text/babel">
@@ -100,24 +109,29 @@
 
       useEffect(() => { window.currentPhase = phase; }, [phase]);
 
+      // 🎬 完美的電影級時序控制
       useEffect(() => {
         window.triggerRevealSlow = () => setPhase('REVEAL_SLOW');
         window.triggerVanish = () => setPhase('VANISH');
 
         if (phase === 'REVEAL_SLOW') {
+          // 4. AR 漸顯與黑幕吞噬 (花費 5 秒) -> 進入停留階段
           const t = setTimeout(() => setPhase('REVEAL_STAY'), 5000);
           return () => clearTimeout(t);
         }
         if (phase === 'REVEAL_STAY') {
+          // 5. 停留 (3 秒) -> 準備震懾放大
           const t = setTimeout(() => setPhase('REVEAL_ZOOM'), 3000);
           return () => clearTimeout(t);
         }
         if (phase === 'REVEAL_ZOOM') {
+          // 6. 全螢幕放大，停留 (3 秒) -> 啟動感光待命
           const t = setTimeout(() => setPhase('DETECTION_ACTIVE'), 3000);
           return () => clearTimeout(t);
         }
       }, [phase]);
 
+      // 👁️ 亮度感應常駐系統 (背地運作不受黑幕干擾)
       useEffect(() => {
         const checkLoop = () => {
           if (window.currentPhase === 'DETECTION_ACTIVE') {
@@ -125,218 +139,4 @@
             if (video && canvasRef.current) {
               const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
               ctx.drawImage(video, 0, 0, 64, 64);
-              const data = ctx.getImageData(0, 0, 64, 64).data;
-              let brightness = 0;
-              for (let i = 0; i < data.length; i += 16) {
-                brightness += (data[i] + data[i+1] + data[i+2]) / 3;
-              }
-              if ((brightness / (data.length / 16)) < 25) { 
-                window.triggerVanish();
-              }
-            }
-          }
-          animFrameRef.current = requestAnimationFrame(checkLoop);
-        };
-        animFrameRef.current = requestAnimationFrame(checkLoop);
-        return () => cancelAnimationFrame(animFrameRef.current);
-      }, []);
-
-      const calculateCardFromTwoStrokes = (s1, s2) => {
-        let suitBase = 0; let isSecondHalf = false; 
-        if (s1.edge === EDGE_LEFT) { suitBase = 0; isSecondHalf = (s1.dir === -1); } 
-        else if (s1.edge === EDGE_TOP) { suitBase = 13; isSecondHalf = (s1.dir === -1); } 
-        else if (s1.edge === EDGE_RIGHT) { suitBase = 26; isSecondHalf = (s1.dir === -1); } 
-        else if (s1.edge === EDGE_BOTTOM) { suitBase = 39; isSecondHalf = (s1.dir === -1); }
-        
-        let finalIndex = suitBase + (isSecondHalf ? 6 : 0);
-        if (s2.edge === s1.edge) { finalIndex = suitBase + 12; } 
-        else {
-            const relEdge = (s2.edge - s1.edge + 4) % 4; 
-            finalIndex += (relEdge - 1) * 2 + (s2.dir === 1 ? 0 : 1);
-        }
-        const cardData = getCardData(finalIndex);
-        setFinalCard(cardData);
-        const pre = new Image(); pre.src = cardData.imageUrl;
-      };
-
-      const getCardData = (index) => {
-        if (index === 52) return { imageUrl: './cards/joker_black.png' };
-        const suits = [{ name: 'club' }, { name: 'diamond' }, { name: 'heart' }, { name: 'spade' }];
-        const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-        const rankNames = { 'J': 'jack', 'Q': 'queen', 'K': 'king', 'A': '1' };
-        const suitIdx = Math.floor(index / 13), valueIdx = index % 13;
-        return { imageUrl: `./cards/${suits[suitIdx].name}_${rankNames[values[valueIdx]] || values[valueIdx]}.png` };
-      };
-
-      const handlePointerDown = (e) => {
-        if (phase === 'START') return;
-        window.longPress = setTimeout(() => location.reload(), 2000); 
-        if (phase !== 'MAGICIAN') return;
-
-        const now = Date.now();
-        if (now - lastTapTime.current < 500) { 
-          setFinalCard(getCardData(52));
-          setPhase('WAIT_TARGET');
-          return;
-        }
-        lastTapTime.current = now;
-        drawState.current = { isDrawing: true, startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY };
-      };
-
-      const handlePointerMove = (e) => {
-        if (!drawState.current.isDrawing) return;
-        drawState.current.currentX = e.clientX; drawState.current.currentY = e.clientY;
-        clearTimeout(window.longPress);
-      };
-
-      const handlePointerUp = () => {
-        clearTimeout(window.longPress);
-        if (!drawState.current.isDrawing) return;
-        drawState.current.isDrawing = false;
-
-        const { startX, startY, currentX, currentY } = drawState.current;
-        const dist = Math.sqrt(Math.pow(currentX - startX, 2) + Math.pow(currentY - startY, 2));
-        
-        if (dist > 40 && phase === 'MAGICIAN') {
-          const getQ = (x, y) => {
-            const cx = window.innerWidth/2, cy = window.innerHeight/2;
-            return x < cx ? (y < cy ? 1 : 4) : (y < cy ? 2 : 3);
-          };
-          const sQ = getQ(startX, startY), eQ = getQ(currentX, currentY);
-          let stroke = null;
-          if (sQ === 4 && eQ === 1) stroke = { edge: EDGE_LEFT, dir: 1 };
-          else if (sQ === 1 && eQ === 4) stroke = { edge: EDGE_LEFT, dir: -1 };
-          else if (sQ === 1 && eQ === 2) stroke = { edge: EDGE_TOP, dir: 1 };
-          else if (sQ === 2 && eQ === 1) stroke = { edge: EDGE_TOP, dir: -1 };
-          else if (sQ === 2 && eQ === 3) stroke = { edge: EDGE_RIGHT, dir: 1 };
-          else if (sQ === 3 && eQ === 2) stroke = { edge: EDGE_RIGHT, dir: -1 };
-          else if (sQ === 3 && eQ === 4) stroke = { edge: EDGE_BOTTOM, dir: 1 };
-          else if (sQ === 4 && eQ === 3) stroke = { edge: EDGE_BOTTOM, dir: -1 };
-
-          if (stroke) {
-            const newStrokes = [...magicianStrokes, stroke];
-            setMagicianStrokes(newStrokes);
-            setRotationAngle(prev => prev + (stroke.dir * 90)); 
-
-            if (newStrokes.length === 2) {
-              calculateCardFromTwoStrokes(newStrokes[0], newStrokes[1]);
-              setPhase('WAIT_TARGET');
-            }
-          }
-        }
-      };
-
-      // 🚨 關鍵修改：修正為按下按鈕後，立刻變透明露出相機
-      const getBlackOverlayOpacity = () => {
-        // 只有在最初的 START 畫面，才用黑幕完全蓋住
-        if (phase === 'START') return 'opacity-100 duration-300';
-        
-        // 只要進入魔術階段 (MAGICIAN) 或 尋找目標 (WAIT_TARGET)，黑幕瞬間消失 (透明度0)
-        if (phase === 'MAGICIAN' || phase === 'WAIT_TARGET') return 'opacity-0 duration-[400ms]';
-        
-        // 抓到牌背後，黑幕花費 3 秒慢慢吞噬背景，突顯出撲克牌
-        if (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY' || phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE') {
-          return 'opacity-100 duration-[3000ms]';
-        }
-
-        // 魔術結束，極速消失，回到乾淨相機實景
-        if (phase === 'VANISH') return 'opacity-0 duration-300';
-
-        return 'opacity-0';
-      };
-
-      return (
-        <div className="relative w-full h-full pointer-events-auto"
-             onPointerDown={handlePointerDown} 
-             onPointerMove={handlePointerMove}
-             onPointerUp={handlePointerUp}>
-          
-          <canvas ref={canvasRef} className="absolute w-px h-px opacity-0 pointer-events-none" />
-
-          {/* 黑幕遮罩層 */}
-          <div className={`absolute inset-0 bg-black pointer-events-none transition-opacity ease-in-out ${getBlackOverlayOpacity()}`} style={{ zIndex: 10 }}></div>
-
-          {/* 初始 START 畫面 */}
-          {phase === 'START' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black pointer-events-auto" style={{ zIndex: 50 }}>
-              <div className="w-20 h-20 mb-8 border border-white/20 rounded-full flex items-center justify-center animate-pulse">
-                <div className="w-10 h-10 bg-white/10 rounded-full border border-white/30"></div>
-              </div>
-              <h1 className="text-white/60 tracking-[0.6em] font-light text-lg mb-12">AR TRACKING</h1>
-              <button 
-                onClick={(e) => { e.stopPropagation(); setPhase('MAGICIAN'); }}
-                className="px-12 py-4 border border-white/40 text-white tracking-[0.3em] text-sm rounded-full bg-white/5 backdrop-blur-md active:scale-95 transition-transform"
-              >
-                START SYSTEM
-              </button>
-            </div>
-          )}
-
-          {/* 頂部提示文字 */}
-          {(phase === 'MAGICIAN' || phase === 'WAIT_TARGET') && (
-            <div className="absolute top-24 left-0 right-0 flex justify-center pointer-events-none" style={{ zIndex: 40 }}>
-              {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
-                  <div className="text-white/60 tracking-[0.4em] font-light text-sm animate-pulse shadow-black drop-shadow-md">Swipe to start</div>
-              )}
-              {phase === 'MAGICIAN' && magicianStrokes.length === 1 && (
-                  <div className="text-cyan-400 tracking-[0.4em] font-light text-sm animate-pulse shadow-black drop-shadow-md">Swipe 2nd</div>
-              )}
-              {phase === 'WAIT_TARGET' && (
-                  <div className="text-cyan-400 tracking-[0.3em] font-mono text-sm animate-pulse shadow-black drop-shadow-md">Searching...</div>
-              )}
-            </div>
-          )}
-
-          {/* 輔助畫線小方塊 */}
-          {(phase === 'MAGICIAN' || phase === 'WAIT_TARGET') && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 40 }}>
-              <div style={{ transform: `rotate(${rotationAngle}deg)`, opacity: phase === 'WAIT_TARGET' ? 0 : 1, transition: 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
-                <div className="relative border-2 border-white/50 w-[100px] h-[100px] rounded-lg border-dashed shadow-[0_0_15px_rgba(255,255,255,0.2)]"></div>
-              </div>
-            </div>
-          )}
-
-          {/* 最終彈出的 HTML 全螢幕大撲克牌 */}
-          {(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') && finalCard && (
-            <img 
-              src={finalCard.imageUrl} 
-              className={`absolute top-1/2 left-1/2 w-[90vw] max-w-[380px] aspect-[63/88] object-contain shadow-[0_30px_60px_rgba(0,0,0,0.8)] rounded-2xl pointer-events-none
-                ${(phase === 'VANISH') ? 'animate-fast-vanish' : 'animate-screen-zoom'}
-              `}
-              style={{ zIndex: 40 }}
-            />
-          )}
-
-          {/* A-Frame / MindAR 相機系統 */}
-          {phase !== 'START' && (
-            <a-scene 
-              mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
-              color-space="sRGB" 
-              renderer="colorManagement: true, physicallyCorrectLights" 
-              vr-mode-ui="enabled: false" 
-              device-orientation-permission-ui="enabled: false"
-            >
-              <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-              
-              <a-entity mindar-image-target="targetIndex: 0" target-handler>
-                <a-image 
-                  id="arCardImage"
-                  src={finalCard?.imageUrl || ''} 
-                  position="0 0 0" 
-                  height="1.4" 
-                  width="1"
-                  material="opacity: 0; transparent: true;"
-                  animation__reveal="property: material.opacity; from: 0; to: 1; dur: 5000; easing: linear; startEvents: startReveal;"
-                  visible={(phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY') ? 'true' : 'false'}
-                ></a-image>
-              </a-entity>
-            </a-scene>
-          )}
-
-        </div>
-      );
-    }
-    ReactDOM.createRoot(document.getElementById('root')).render(<MagicCardApp />);
-  </script>
-</body>
-</html>
+              const data = ctx.getImageData(0, 0, 64,
