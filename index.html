@@ -261,4 +261,80 @@
                 <div className="w-20 h-20 mb-8 border border-white/20 rounded-full flex items-center justify-center animate-pulse">
                   <div className="w-10 h-10 bg-white/10 rounded-full border border-white/30"></div>
                 </div>
-                <h1 className="text-white/60 tracking
+                <h1 className="text-white/60 tracking-[0.6em] font-light text-lg mb-12">AR TRACKING</h1>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setPhase('MAGICIAN'); }}
+                  className="px-12 py-4 border border-white/40 text-white tracking-[0.3em] text-sm rounded-full bg-white/5 backdrop-blur-md active:scale-95 transition-transform"
+                >
+                  START SYSTEM
+                </button>
+              </div>
+            )}
+
+            {/* 2. 頂端魔術師提示文字 */}
+            <div className="absolute top-20 left-0 right-0 flex justify-center drop-shadow-lg">
+              {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
+                  <div className="text-white/50 tracking-[0.4em] font-light text-sm animate-pulse">Swipe to start</div>
+              )}
+              {phase === 'MAGICIAN' && magicianStrokes.length === 1 && (
+                  <div className="text-cyan-400/60 tracking-[0.4em] font-light text-sm animate-pulse">Swipe 2nd</div>
+              )}
+              {phase === 'WAIT_TARGET' && (
+                  <div className="text-cyan-400 tracking-[0.3em] font-mono text-sm animate-pulse shadow-black">
+                    Searching...
+                  </div>
+              )}
+            </div>
+
+            {/* 3. 旋轉追蹤方塊 */}
+            {(phase === 'MAGICIAN' || phase === 'WAIT_TARGET') && (
+              <div style={{ transform: `rotate(${rotationAngle}deg)`, opacity: phase === 'WAIT_TARGET' ? 0 : 1, transition: 'all 0.4s ease-out' }}>
+                <div className="relative border-2 border-white/40 w-[100px] h-[100px] rounded-lg border-dashed shadow-[0_0_15px_rgba(255,255,255,0.2)]"></div>
+              </div>
+            )}
+
+            {/* 4. 全螢幕脫離束縛放大 & 極速消失卡片 */}
+            {(phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') && finalCard && (
+              <img 
+                src={finalCard.imageUrl} 
+                className={`absolute top-1/2 left-1/2 w-[90vw] max-w-[380px] aspect-[63/88] object-contain shadow-[0_30px_60px_rgba(0,0,0,0.8)] rounded-2xl
+                  ${(phase === 'VANISH') ? 'animate-fast-vanish' : 'animate-screen-zoom'}
+                `}
+              />
+            )}
+          </div>
+
+
+          {/* 👁️ 【MindAR / A-Frame 核心引擎】 */}
+          {phase !== 'START' && (
+            <a-scene 
+              mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: no;" 
+              color-space="sRGB" 
+              renderer="colorManagement: true, physicallyCorrectLights" 
+              vr-mode-ui="enabled: false" 
+              device-orientation-permission-ui="enabled: false"
+            >
+              <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+              <a-entity mindar-image-target="targetIndex: 0" target-handler>
+                {/* AR 卡牌完美貼合實體紙牌 (Z-index: 20 會浮在黑幕之上) */}
+                <a-image 
+                  id="arCardImage"
+                  src={finalCard?.imageUrl || ''} 
+                  position="0 0 0" 
+                  height="1.4" 
+                  width="1"
+                  material="opacity: 0; transparent: true;"
+                  animation__reveal="property: material.opacity; from: 0; to: 1; dur: 5000; easing: linear; startEvents: startReveal;"
+                  visible={(phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY') ? 'true' : 'false'}
+                ></a-image>
+              </a-entity>
+            </a-scene>
+          )}
+
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<MagicCardApp />);
+  </script>
+</body>
+</html>
