@@ -14,13 +14,15 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js" crossorigin="anonymous"></script>
 
   <style>
-    html, body, #root { 
+    /* ⚠️ 關鍵修正：將 body 與 #root 設為 transparent (透明)，否則會遮擋底層的相機畫面 */
+    html { background-color: #000; }
+    body, #root { 
       height: 100%; 
       width: 100%; 
       margin: 0; 
       padding: 0;
       overflow: hidden; 
-      background-color: #000; 
+      background-color: transparent; 
       touch-action: none; 
       user-select: none; 
       -webkit-user-select: none; 
@@ -38,6 +40,7 @@
       width: 100% !important; height: 100% !important;
       top: 0 !important; left: 0 !important; position: absolute !important;
       object-fit: cover !important;
+      z-index: -2 !important; /* 確保相機實景在最底層 */
     }
 
     /* 從 AR 空間切換到全螢幕的 HTML 放大動畫 */
@@ -83,9 +86,7 @@
     const EDGE_TOP = 0, EDGE_RIGHT = 1, EDGE_BOTTOM = 2, EDGE_LEFT = 3;
 
     function MagicCardApp() {
-      // 狀態機：直接從 MAGICIAN 開始，跳過 START 按鈕階段
-      // MAGICIAN -> WAIT_TARGET(掃描中) -> REVEAL_SLOW(AR漸顯5s) -> REVEAL_STAY(AR停留3s) 
-      // -> REVEAL_ZOOM(跳出AR放大) -> DETECTION_ACTIVE(等待感光3s) -> VANISH(消失)
+      // 狀態機：直接從 MAGICIAN 開始
       const [phase, setPhase] = useState('MAGICIAN'); 
       const [magicianStrokes, setMagicianStrokes] = useState([]);
       const [finalCard, setFinalCard] = useState(null);
@@ -253,10 +254,10 @@
           {/* 魔術師手勢引導文字：放在 z-30 確保高於黑幕 */}
           <div className="absolute top-20 left-0 right-0 flex flex-col items-center pointer-events-none z-30 drop-shadow-md">
             {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
-                <div className="text-white/80 tracking-[0.4em] font-light text-sm animate-pulse">SWIPE TO START</div>
+                <div className="text-white/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe to start</div>
             )}
             {phase === 'MAGICIAN' && magicianStrokes.length === 1 && (
-                <div className="text-cyan-400/80 tracking-[0.4em] font-light text-sm animate-pulse">SWIPE 2ND</div>
+                <div className="text-cyan-400/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe 2nd</div>
             )}
           </div>
 
