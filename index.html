@@ -23,7 +23,7 @@
       background-color: #000; 
     }
 
-    /* 三明治層級架構 */
+    /* 三明治完美層級架構 */
     video {
       width: 100% !important;
       height: 100% !important;
@@ -31,7 +31,7 @@
       left: 0 !important;
       position: absolute !important;
       object-fit: cover !important;
-      z-index: 1 !important; /* 【第 1 層】底層：相機畫面 */
+      z-index: 1 !important; /* 【第 1 層】底層：現實相機畫面 */
     }
     
     .black-mask-layer {
@@ -39,7 +39,7 @@
       inset: 0;
       background-color: #000;
       pointer-events: none;
-      z-index: 2 !important; /* 【第 2 層】中層：負責在放大時吞噬背景 */
+      z-index: 2 !important; /* 【第 2 層】中層：夾在相機與 AR 之間，負責緩慢吞噬現實 */
     }
 
     .a-canvas {
@@ -49,7 +49,7 @@
       left: 0 !important;
       position: absolute !important;
       object-fit: cover !important;
-      z-index: 3 !important; /* 【第 3 層】AR 牌影層 */
+      z-index: 3 !important; /* 【第 3 層】AR 牌影層：高於黑幕，確保黑幕變黑時，AR卡牌依然清晰可見 */
     }
     
     .a-dialog-allow-button { display: none !important; }
@@ -107,8 +107,8 @@
         height="1.4" 
         width="1"
         material="opacity: 0; transparent: true;"
-        /* 修正點 2：慢顯時間改為 2000 毫秒 (2秒) */
-        animation__reveal="property: material.opacity; from: 0; to: 1; dur: 2000; easing: easeInOutQuad; startEvents: startReveal;"
+        /* ⚙️ 修正點 2：AR 卡牌漸顯時間延長至 3000 毫秒 (3秒) */
+        animation__reveal="property: material.opacity; from: 0; to: 1; dur: 3000; easing: easeInOutQuad; startEvents: startReveal;"
         visible="false"
       ></a-image>
     </a-entity>
@@ -145,17 +145,17 @@
         }
       }, [phase]);
 
-      /* 修正點 2：時序控制重組 (2秒顯現 + 2秒停留) */
+      /* ⚙️ 修正點 2：時序控制重組 (3秒顯現 + 2秒停留) */
       useEffect(() => {
         window.triggerRevealSlow = () => setPhase('REVEAL_SLOW');
         window.triggerVanish = () => setPhase('VANISH');
 
         if (phase === 'REVEAL_SLOW') {
-          const t = setTimeout(() => setPhase('REVEAL_STAY'), 2000); /* 緩慢顯示 2 秒 */
+          const t = setTimeout(() => setPhase('REVEAL_STAY'), 3000); /* 緩慢顯示與黑幕同步延長至 3 秒 */
           return () => clearTimeout(t);
         }
         if (phase === 'REVEAL_STAY') {
-          const t = setTimeout(() => setPhase('REVEAL_ZOOM'), 2000); /* 顯示完成後等待 2 秒 */
+          const t = setTimeout(() => setPhase('REVEAL_ZOOM'), 2000); /* 顯示完成後在黑幕中靜止停留 2 秒 */
           return () => clearTimeout(t);
         }
         if (phase === 'REVEAL_ZOOM') {
@@ -285,10 +285,10 @@
 
       return (
         <>
-          {/* 【第 2 層】修正點 2：黑幕遮罩修改為只在「放大與後續感應階段」變黑，顯現與等待時維持完全透明不擋相機 */}
+          {/* ⚙️ 修正點 1：黑幕從 REVEAL_SLOW (辨識成功) 就加入 opacity-100，並透過 duration-[3000ms] 達到 3 秒緩慢變黑的效果 */}
           <div className={`black-mask-layer transition-opacity ${
-            (phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') 
-              ? 'opacity-100 duration-700' 
+            (phase === 'REVEAL_SLOW' || phase === 'REVEAL_STAY' || phase === 'REVEAL_ZOOM' || phase === 'DETECTION_ACTIVE' || phase === 'VANISH') 
+              ? 'opacity-100 duration-[3000ms]' 
               : 'opacity-0 duration-500'
           }`} />
 
@@ -301,7 +301,7 @@
             
             <canvas ref={canvasRef} className="absolute w-px h-px opacity-0 pointer-events-none" />
 
-            {/* UI 引導文字（修正點 1：已完全拔除 magicianStrokes.length === 1 時的文字顯示） */}
+            {/* UI 引導文字 */}
             <div className="absolute top-20 left-0 right-0 flex flex-col items-center pointer-events-none drop-shadow-md">
               {phase === 'MAGICIAN' && magicianStrokes.length === 0 && (
                   <div className="text-white/80 tracking-[0.4em] font-light text-sm animate-pulse">Swipe to start</div>
